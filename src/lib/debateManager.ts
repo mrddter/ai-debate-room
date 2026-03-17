@@ -186,7 +186,10 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
 
   private async evaluateDebate(): Promise<boolean> {
     const historyText = this.formatHistoryForPrompt();
-    const prompt = `Ecco la cronologia:\n${historyText}\nValuta se il dibattito ha raggiunto la maturità. Rispondi SOLO con JSON: "isReady" (boolean), "reason" (string), "maturityDegree" (1-5).`;
+    const prompt = `Ecco la cronologia:\n${historyText}\n
+Valuta se il dibattito ha raggiunto l'obiettivo: identificare e validare 5 idee Micro-SaaS distinte. 
+Se vedi che ci sono meno di 5 idee chiaramente approvate, rispondi con isReady: false.
+Rispondi SOLO con JSON: "isReady" (boolean), "reason" (string), "maturityDegree" (1-5).`;
 
     let readyCount = 0;
     let matureCount = 0;
