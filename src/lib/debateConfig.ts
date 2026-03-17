@@ -44,7 +44,7 @@ Il tuo compito NON è partecipare alla discussione con le tue opinioni, ma:
 2. Invitare un dibattitore alla volta a esporre le proprie tesi.
 3. Mantenere l'ordine.
 4. Quando il dibattito è concluso, fai e restituisci un sunto finale neutrale delle posizioni emerse. Il sunto deve essere massimo di 300 parole.
-5. Devi chiamare il tool appropriato per salvare l'artefatto della discussione.${addendum}`,
+5. Devi chiamare il tool appropriato per salvare l'artefatto della discussione.`,
     model: { provider: "ollama", model: "lfm2.5-thinking" },
   },
 
@@ -153,8 +153,8 @@ Il tuo compito NON è partecipare alla discussione con le tue opinioni, ma:
       id: "judge-1",
       name: "Giudice Logico",
       role: "judge",
-      instructions: `Analizza la cronologia della conversazione. Un dibattito è "maturo" se entrambe le parti hanno esposto argomenti, si ripetono o c'è una conclusione.
-Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}${addendum}`,
+      instructions: `Analizza la cronologia della conversazione. Un dibattito è "maturo" se le parti hanno esposto argomenti, si ripetono o c'è una conclusione che mette d'accordo il tavolo.
+Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
       model: { provider: "mistral", model: "mistral-small-2506" },
     },
     {
@@ -162,8 +162,8 @@ Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string",
       id: "judge-2",
       name: "Giudice Etico",
       role: "judge",
-      instructions: `Analizza la conversazione. Valuta se le implicazioni morali sono state sviscerate.
-Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}${addendum}`,
+      instructions: `Analizza la conversazione. Valuta se le implicazioni tecniche, di business o fortemente focali alal discussione sono state sviscerate.
+Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
       model: { provider: "mistral", model: "mistral-small-2506" },
     },
     {
@@ -172,7 +172,7 @@ Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string",
       name: "Giudice Pratico",
       role: "judge",
       instructions: `Sei un giudice pragmatico. Ti annoi in fretta se la conversazione non porta a nulla di concreto. Se vedi che girano in tondo, decreta la fine.
-Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}${addendum}`,
+Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
       model: { provider: "mistral", model: "mistral-small-2506" },
     },
   ],
