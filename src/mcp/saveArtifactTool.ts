@@ -26,14 +26,23 @@ export const saveArtifactTool = createTool({
       summary: string;
       fullLog: string;
     };
+
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `debate-artifact-${timestamp}.md`;
     const dir = path.join(process.cwd(), "artifacts");
 
-    await fs.mkdir(dir, { recursive: true });
-    const content = `# Debate Artifact\n\n## Topic\n${topic}\n\n## Final Summary\n${summary}\n\n---\n\n## Full Debate Log\n${fullLog}\n`;
-    const filepath = path.join(dir, filename);
-    await fs.writeFile(filepath, content, "utf-8");
+    let filepath;
+    log.debug("Save file " + filename + " in " + dir);
+
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      const content = `# Debate Artifact\n\n## Topic\n${topic}\n\n## Final Summary\n${summary}\n\n---\n\n## Full Debate Log\n${fullLog}\n`;
+      filepath = path.join(dir, filename);
+      await fs.writeFile(filepath, content, "utf-8");
+    } catch (error) {
+      log.error(error);
+      throw error;
+    }
 
     return {
       success: true,
