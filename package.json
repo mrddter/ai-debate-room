@@ -3,11 +3,32 @@
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
-  "scripts": {
+  "scriptsaaaa": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "build": "tsc",
     "type-check": "tsc --noEmit"
+  },
+  "scripts": {
+    "build": "tsc",
+    "preprod": "npm run build",
+    "prod": "cd dist && node index.js",
+    "server": "cd dist && node index.js",
+    "start:prod": "cd dist && node --env-file ../.env index.js",
+    "start": "tsx --env-file .env index.ts",
+    "dev": "tsx watch --env-file .env index.ts",
+    "reset": "npm install && npm update && npm run build",
+    "upgrade-deps": "npx npm-check-updates -u",
+    "test": "npm run test:full",
+    "test:full": "cross-env PORT=2231 NODE_ENV=memory BROWSER=false mocha --loader=tsx ./test/index.spec.ts -t 100000",
+    "test:demo": "MOCHA_SKIP_TASK=unit,e2e npm run test:full",
+    "test:e2e": "MOCHA_SKIP_TASK=unit,demo npm run test:full",
+    "test:unit": "MOCHA_SKIP_TASK=demo,e2e npm run test:full",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "type-check": "tsc --noEmit",
+    "check-all": "npm run lint && npm run type-check",
+    "combine": "node combine.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.1.9",

@@ -40,6 +40,9 @@ export function setupTelegramBot() {
       `Stato: ${manager.status}\nArgomento: ${manager.topic}\nTurni: ${manager.turnCount}`,
     );
   });
+  bot.command("help", (ctx) => {
+    ctx.reply(`Usa /debate [argomento], /stop o /status.`);
+  });
 
   bot.launch();
   process.once("SIGINT", () => bot.stop("SIGINT"));

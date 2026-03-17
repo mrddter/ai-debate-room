@@ -57,6 +57,8 @@ export class DebateManager {
     if (this.status !== "RUNNING") return;
     try {
       if (this.turnCount === 0) {
+        log.debug("> Il dibattito ha inizio");
+
         const prompt = `Il dibattito sta per iniziare. Tema: "${this.topic}". Introduci brevemente (max 100 parole) e dai la parola a: ${debaterAgents[0].name}.`;
         const response = await moderatorAgent.generate(prompt);
         const content = response.text || "";
@@ -68,6 +70,8 @@ export class DebateManager {
         this.broadcast(`**[${moderatorAgent.name}]**\n${content}`);
       } else {
         const debater = debaterAgents[this.currentDebaterIndex];
+        log.debug("> La parola a " + debater.id);
+
         const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.`;
         const response = await debater.generate(prompt);
         const content = response.text || "";
@@ -82,6 +86,7 @@ export class DebateManager {
       if (this.turnCount > 1) {
         const isFinished = await this.evaluateDebate();
         if (isFinished || this.turnCount >= this.maxTurns) {
+          log.debug("> Il dibattito si è concluso");
           await this.finishDebate();
           return;
         }
