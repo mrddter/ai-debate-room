@@ -65,6 +65,79 @@ export class DebateManager {
       .join("\n\n");
   }
 
+  /**
+   * Returns a formatted roster of active debaters for the moderator prompt.
+   */
+  private getDebaterRoster(): string {
+    return debaterAgents
+      .map((d) => `- ${d.id}: ${d.name}`)
+      .join("\n");
+  }
+
+  /**
+   * Asks the moderator to process the last response and choose who speaks next.
+   * Falls back to round-robin if JSON parsing fails.
+   */
+  private async routeNextSpeaker(lastDebaterName: string): Promise<void> {
+    const roster = this.getDebaterRoster();
+    const prompt = `Hai appena ascoltato l'intervento di ${lastDebaterName}.
+Cronologia completa:\n${this.formatHistoryForPrompt()}
+
+Ecco i dibattitori disponibili al tavolo:
+${roster}
+
+Basandoti sul contenuto dell'ultimo intervento e sul flusso della discussione, decidi chi deve parlare dopo.
+Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition": "breve commento di transizione max 30 parole"}`;
+
+    try {
+      const response = await moderatorAgent.generate(prompt);
+      let text = response.text || "{}";
+      text = text
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+
+      const result = JSON.parse(text) as {
+        nextSpeakerId: string;
+        transition: string;
+      };
+
+      // Broadcast the moderator's transition comment
+      if (result.transition) {
+        this.history.push({
+          role: "assistant",
+          content: result.transition,
+          name: moderatorAgent.name,
+        });
+        this.broadcast(`**[${moderatorAgent.name}]**\n${result.transition}`);
+      }
+
+      // Find the chosen debater by ID
+      const chosenIndex = debaterAgents.findIndex(
+        (d) => d.id === result.nextSpeakerId,
+      );
+
+      if (chosenIndex !== -1) {
+        this.currentDebaterIndex = chosenIndex;
+        log.debug(
+          `> Moderatore ha scelto: ${debaterAgents[chosenIndex].name} (${result.nextSpeakerId})`,
+        );
+      } else {
+        // Fallback: round-robin
+        log.debug(
+          `> ID "${result.nextSpeakerId}" non trovato, fallback round-robin`,
+        );
+        this.currentDebaterIndex =
+          (this.currentDebaterIndex + 1) % debaterAgents.length;
+      }
+    } catch (err) {
+      // Fallback: round-robin on any error
+      log.debug("> Routing moderatore fallito, fallback round-robin");
+      this.currentDebaterIndex =
+        (this.currentDebaterIndex + 1) % debaterAgents.length;
+    }
+  }
+
   private async runTurn() {
     if (this.status !== "RUNNING") return;
     try {
@@ -81,6 +154,7 @@ export class DebateManager {
         });
         this.broadcast(`**[${moderatorAgent.name}]**\n${content}`);
       } else {
+        // 1. Il debater corrente parla
         const debater = debaterAgents[this.currentDebaterIndex];
         log.debug("> La parola a " + debater.id);
 
@@ -89,8 +163,9 @@ export class DebateManager {
         const content = response.text || "";
         this.history.push({ role: "assistant", content, name: debater.name });
         this.broadcast(`**[${debater.name}]**\n${content}`);
-        this.currentDebaterIndex =
-          (this.currentDebaterIndex + 1) % debaterAgents.length;
+
+        // 2. Il moderatore processa la risposta e sceglie il prossimo
+        await this.routeNextSpeaker(debater.name);
       }
 
       this.turnCount++;
