@@ -49,10 +49,9 @@ export class DebateManager {
     await this.runTurn();
   }
 
-  public stopDebate() {
-    this.status = "FINISHED";
+  public async stopDebate() {
     this.broadcast(`🛑 **DIBATTITO INTERROTTO** 🛑`);
-    if (this.onFinishedCallback) this.onFinishedCallback();
+    await this.finishDebate(true);
   }
 
   private broadcast(msg: string) {
@@ -187,9 +186,12 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
   private async evaluateDebate(): Promise<boolean> {
     const historyText = this.formatHistoryForPrompt();
     const prompt = `Ecco la cronologia:\n${historyText}\n
-Valuta se il dibattito ha raggiunto l'obiettivo: identificare e validare 5 idee Micro-SaaS distinte. 
-Se vedi che ci sono meno di 5 idee chiaramente approvate, rispondi con isReady: false.
-Rispondi SOLO con JSON: "isReady" (boolean), "reason" (string), "maturityDegree" (1-5).`;
+Valuta se il dibattito è giunto a una conclusione. Le regole per terminare sono:
+1. Obiettivo Raggiunto: Sono state identificate e validate chiaramente 5 idee distinte (isReady: true).
+2. Tempo Spreco/Loop: I partecipanti girano in tondo senza progredire o proporre nuove idee valide da troppo tempo (isReady: true, indicare reason adeguata).
+
+Se il dibattito sta procedendo proficuamente ma non ha ancora raggiunto l'obiettivo, rispondi con isReady: false.
+Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "maturityDegree": numero_da_1_a_5}`;
 
     let readyCount = 0;
     let matureCount = 0;
@@ -213,13 +215,13 @@ Rispondi SOLO con JSON: "isReady" (boolean), "reason" (string), "maturityDegree"
     return false;
   }
 
-  private async finishDebate() {
+  private async finishDebate(interrupted: boolean = false) {
     this.status = "FINISHED";
     this.broadcast(
-      `🏁 **Il dibattito si è concluso.** Moderatore elabora sunto...`,
+      `🏁 **Il dibattito si è concluso${interrupted ? ' anticipatamente' : ''}.** Moderatore elabora sunto...`,
     );
     try {
-      const prompt = `Dibattito terminato. Cronologia:\n${this.formatHistoryForPrompt()}\nFai un sunto neutrale ed evidenzia i punti in comune. Poi usa il tool per salvare l'artefatto.`;
+      const prompt = `Dibattito terminato${interrupted ? ' anticipatamente (interrotto)' : ''}. Cronologia:\n${this.formatHistoryForPrompt()}\nFai un sunto neutrale della discussione fin qui svoltasi, evidenziando i punti in comune o i risultati parziali, e indica che il dibattito è stato interrotto (se applicabile). Poi usa il tool per salvare l'artefatto. Massimo 400 parole.`;
       const response = await moderatorAgent.generate(prompt);
       const content = response.text || "";
       this.history.push({

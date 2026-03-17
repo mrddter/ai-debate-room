@@ -43,11 +43,11 @@ export function setupTelegramBot() {
     activeChatId = ctx.chat.id;
     manager.startDebate(topicMatch?.[1]?.trim()).catch(() => {});
   });
-  bot.command("stop", (ctx) => {
+  bot.command("stop", async (ctx) => {
     if (manager.status !== "RUNNING")
       return ctx.reply("Nessun dibattito in corso.");
-    manager.stopDebate();
-    ctx.reply("Hai fermato il dibattito.");
+    ctx.reply("Sto fermando il dibattito e generando un sunto...");
+    await manager.stopDebate();
   });
   bot.command("status", (ctx) => {
     ctx.reply(
