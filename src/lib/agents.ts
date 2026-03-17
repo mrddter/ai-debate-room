@@ -26,4 +26,8 @@ export async function initializeAgents() {
       .filter((config) => config.enabled)
       .map((config) => createVolcanicAgent(config)),
   );
+
+  log.info("Moderator " + moderatorAgent.id);
+  log.info("Judges " + judgeAgents.length);
+  log.info("Debaters " + debaterAgents.length);
 }
