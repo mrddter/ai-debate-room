@@ -1,5 +1,6 @@
 import { debateConfig, JudgeOutput } from "./debateConfig";
 import { moderatorAgent, debaterAgents, judgeAgents } from "./agents";
+import * as log from "@volcanicminds/tools/logger";
 
 export type DebateStatus = "IDLE" | "RUNNING" | "FINISHED";
 export interface ChatMessage {

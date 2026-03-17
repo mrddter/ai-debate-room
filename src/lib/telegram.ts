@@ -3,11 +3,25 @@ import { DebateManager } from "./debateManager";
 
 export function setupTelegramBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  if (!token || !chatId) return;
 
   const bot = new Telegraf(token);
   const manager = new DebateManager();
   let activeChatId: number | null = null;
+
+  // Middleware di sicurezza: ascolta solo dal chat ID configurato
+  bot.use(async (ctx, next) => {
+    const currentChatId = ctx.chat?.id.toString();
+    if (currentChatId !== chatId) {
+      console.warn(
+        `[Security] Messaggio ignorato da chat ID non autorizzato: ${currentChatId}`,
+      );
+      return;
+    }
+    return next();
+  });
 
   manager.setOnMessage(async (msg) => {
     if (activeChatId)
