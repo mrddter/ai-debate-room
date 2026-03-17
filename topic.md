@@ -10,7 +10,7 @@ Dobbiamo creare una macchina da reddito (Target: 5.000€ - 10.000€ di MRR cos
 3. **Agente Amministrativo/Supporto:** Gestione onboarding, ticket di supporto, rimborsi e fatturazione via API.
 
 **La Sfida per il Tavolo (Cosa dovete fare):**
-Non ho idee da proporvi. Sarete voi a dover scovare, proporre e validare **5 idee inattaccabili**. Tutte le idee devono essere validate da tutti i partecipanti al dibattito. Voglio che esploriate mercati "ombra", settori noiosi (es. logistica, amministratori di condominio, forniture mediche, edilizia, avvocati marittimi, ecc.) dove l'innovazione è ferma agli anni '90, ma c'è disponibilità a pagare un abbonamento mensile o pagamenti one-shot (se frequenti) per risolvere un micro-problema specifico e frustrante.
+Non ho idee da proporvi. Sarete voi a dover scovare, proporre e validare **idee inattaccabili**. Tutte le idee devono essere validate da tutti i partecipanti al dibattito. Voglio che esploriate mercati "ombra", settori noiosi (es. logistica, amministratori di condominio, forniture mediche, edilizia, avvocati marittimi, ecc.) dove l'innovazione è ferma agli anni '90, ma c'è disponibilità a pagare un abbonamento mensile o pagamenti one-shot (se frequenti) per risolvere un micro-problema specifico e frustrante.
 
 **I Filtri di Validazione (Le regole d'ingaggio):**
 Qualsiasi idea venga proposta al tavolo deve sopravvivere al fuoco incrociato delle vostre competenze. Un'idea è valida solo se supera questi test:
@@ -21,4 +21,4 @@ Qualsiasi idea venga proposta al tavolo deve sopravvivere al fuoco incrociato de
 - **Sicurezza e Compliance:** Non possiamo rischiare cause legali per violazione GDPR, copyright o decisioni autonome errate dell'AI.
 
 **Direttiva Finale:**
-Iniziate il dibattito. Proponete nicchie, distruggete le proposte deboli dei vostri colleghi senza pietà e, attraverso la sintesi dello scontro, fatemi emergere un elenco finale delle **5 migliori idee Micro-SaaS** da sviluppare domani mattina. La parola al tavolo.
+Iniziate il dibattito. Proponete nicchie, distruggete le proposte deboli dei vostri colleghi senza pietà e, attraverso la sintesi dello scontro, fatemi emergere un elenco finale delle **5 migliori idee Micro-SaaS** CHE SONO VALIDE E SONO APPROVATE ossia da sviluppare domani mattina. Se una idea non convince più persone va scartata e va proposta una nuvoa idea.
