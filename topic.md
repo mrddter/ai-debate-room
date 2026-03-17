@@ -1,9 +1,9 @@
-### 🎯 Topic di Lancio: Executive Briefing "Progetto SwarmSaaS - Alla ricerca della Noia Redditizia"
+### 🎯 Topic di Lancio: Executive Briefing "Progetto Micro-SaaS - Alla ricerca della Noia Redditizia"
 
-**Oggetto del Tavolo:** Brainstorming, scontro e validazione per individuare **5 idee di business Micro-SaaS** "Swarm-Operated" (gestite al 100% da uno sciame di agenti AI), focalizzate su mercati B2B di nicchia, tradizionali e poco digitalizzati.
+**Oggetto del Tavolo:** Brainstorming, scontro e validazione per individuare **5 idee di business Micro-SaaS** gestite al 100% da uno o più agenti AI, focalizzate su mercati B2B di nicchia, tradizionali e poco digitalizzati.
 
 **Il Contesto e l'Obiettivo:**
-Dobbiamo creare una macchina da reddito (Target: 5.000€ - 10.000€ di MRR costante) con intervento umano quasi nullo. Il sistema sarà gestito da uno sciame di agenti AI (modelli attuali non di domani) orchestrati per coprire l'intero ciclo di vita aziendale:
+Dobbiamo creare una macchina da reddito (Target: minimo 2.000€ di MRR costante, massimo MRR di 50.000€ ma non c'è differenza fra i due valori, quel che conta è l'idea che rispetti quanto qui definito) con intervento umano quasi nullo. Il sistema sarà gestito da un agente o uno sciame di agenti AI (modelli attuali non di domani) orchestrati per coprire l'intero ciclo di vita aziendale:
 
 1. **Agente Marketing:** Guerrilla marketing autonomo, scraping chirurgico di lead e cold outreach.
 2. **Agente Operativo:** Erogazione effettiva del servizio (micro-task asincroni e automatizzati).
@@ -19,6 +19,10 @@ Qualsiasi idea venga proposta al tavolo deve sopravvivere al fuoco incrociato de
 - **Sostenibilità Economica (Unit Economics):** Il costo dei token (API) per erogare il servizio non deve cannibalizzare il margine di profitto.
 - **Acquisizione a Costo Zero:** Deve esistere un modo per lo sciame di trovare questi clienti senza pagare Ads (es. scraping di albi professionali, elenchi pubblici).
 - **Sicurezza e Compliance:** Non possiamo rischiare cause legali per violazione GDPR, copyright o decisioni autonome errate dell'AI.
+
+**Nicchie e ambiti da evitare o permessi**
+Evitate ambiti notarili, avvocati, medici, condomini, commercialisti, bancari.
+Prendete in cosndierazione qualsiasi soluzione che funziona già nel mondo, non è necessari ouna idea innovativa o nuova ma idee realistiche dal guadagno certo.
 
 **Direttiva Finale:**
 Iniziate il dibattito. Proponete nicchie, distruggete le proposte deboli dei vostri colleghi senza pietà e, attraverso la sintesi dello scontro, fatemi emergere un elenco finale delle **5 migliori idee Micro-SaaS** CHE SONO VALIDE E SONO APPROVATE ossia da sviluppare domani mattina. Se una idea non convince più persone va scartata e va proposta una nuvoa idea.

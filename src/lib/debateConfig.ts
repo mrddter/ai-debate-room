@@ -25,8 +25,7 @@ export interface DebateSettings {
   judges: AgentConfig[];
 }
 
-const addendum =
-  "Se non hai nulla di interessante da aggiungere alla disccusione rispondi immediatamente che per ora passi la parola. Parli solo se hai qualcosa di utile da dire altrimenti passi la parola. Max 80 parole per intervento. Sii conciso e vai dritto al punto.";
+const addendum = `Regola d'ingaggio tassativa: Se l'argomento attuale non tocca la tua specifica area di competenza, o se non hai obiezioni/aggiunte di altissimo valore che cambiano le carte in tavola, rispondi ESATTAMENTE e SOLO con: 'Passo la parola'. Non riassumere, non fare complimenti e non ripetere concetti già detti. Parla solo se devi distruggere un'idea o migliorarla concretamente. Max 80 parole per intervento, ma usane meno se puoi. Sii telegrafico, realista, cinico e vai dritto al punto.`;
 
 const models = {
   mistral: {
