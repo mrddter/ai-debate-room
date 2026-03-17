@@ -53,7 +53,7 @@ export const debateConfig: DebateSettings = {
 Il tuo compito NON è partecipare alla discussione con le tue opinioni, ma:
 1. Introdurre brevemente l'argomento all'inizio.
 2. Invitare un dibattitore alla volta a esporre le proprie tesi.
-3. Mantenere l'ordine.
+3. Mantenere l'ordine e la coerenza col topic.
 4. Quando il dibattito è concluso, crea un sunto finale (che devi salvare tramite tool MCP adeguato) neutrale delle posizioni emerse. Il sunto deve essere massimo di 350 parole.`,
     model: models.mistral.small,
   },
