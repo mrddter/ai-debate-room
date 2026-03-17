@@ -33,7 +33,7 @@ export function setupTelegramBot() {
     activeChatId = null;
   });
 
-  bot.command("start", (ctx) =>
+  bot.command(["start", "help"], (ctx) =>
     ctx.reply("Benvenuto! Usa /debate [argomento], /stop o /status."),
   );
   bot.command("debate", async (ctx) => {
@@ -49,13 +49,10 @@ export function setupTelegramBot() {
     ctx.reply("Sto fermando il dibattito e generando un sunto...");
     await manager.stopDebate();
   });
-  bot.command("status", (ctx) => {
+  bot.command(["status", "stats"], (ctx) => {
     ctx.reply(
       `Stato: ${manager.status}\nArgomento: ${manager.topic}\nTurni: ${manager.turnCount}`,
     );
-  });
-  bot.command("help", (ctx) => {
-    ctx.reply(`Usa /debate [argomento], /stop o /status.`);
   });
 
   // Gestore messaggi di testo semplici (non comandi)

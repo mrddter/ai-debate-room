@@ -21,8 +21,9 @@ Qualsiasi idea venga proposta al tavolo deve sopravvivere al fuoco incrociato de
 - **Sicurezza e Compliance:** Non possiamo rischiare cause legali per violazione GDPR, copyright o decisioni autonome errate dell'AI.
 
 **Nicchie e ambiti da evitare o permessi**
-Evitate ambiti notarili, avvocati, medici, condomini, commercialisti, bancari.
-Prendete in cosndierazione qualsiasi soluzione che funziona già nel mondo, non è necessari ouna idea innovativa o nuova ma idee realistiche dal guadagno certo.
+Evitate ambiti e soluzioni per ambiti: notarili, avvocati, medici, sanitari, condomini, commercialisti, bancari.
+
+**_IMPORTANTE_**: Prendete in considerazione qualsiasi soluzione che funziona già nel mondo e che sia già stata implementata, non è necessaria una idea innovativa o nuova ma bisogna trovare idee realistiche dal guadagno certo che possono essere svolte da agenti AI con un valore aggoiuntivo rispetto a un tradizione applicativo.
 
 **Direttiva Finale:**
 Iniziate il dibattito. Proponete nicchie, distruggete le proposte deboli dei vostri colleghi senza pietà e, attraverso la sintesi dello scontro, fatemi emergere un elenco finale delle **5 migliori idee Micro-SaaS** CHE SONO VALIDE E SONO APPROVATE ossia da sviluppare domani mattina. Se una idea non convince più persone va scartata e va proposta una nuvoa idea.
