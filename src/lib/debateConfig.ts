@@ -26,7 +26,7 @@ export interface DebateSettings {
 }
 
 const addendum =
-  "Max 100 parole per intervento, se non hai nulla di interessante da aggiungere alla disccusione indica solo che per ora passi la parola al prossimo.";
+  "Se non hai nulla di interessante da aggiungere alla disccusione rispondi immediatamente che per ora passi la parola. Max 80 parole per intervento. Sii conciso e vai dritto al punto.";
 
 export const debateConfig: DebateSettings = {
   defaultTopic:
@@ -43,9 +43,8 @@ Il tuo compito NON è partecipare alla discussione con le tue opinioni, ma:
 1. Introdurre brevemente l'argomento all'inizio.
 2. Invitare un dibattitore alla volta a esporre le proprie tesi.
 3. Mantenere l'ordine.
-4. Quando il dibattito è concluso, fai e restituisci un sunto finale neutrale delle posizioni emerse. Il sunto deve essere massimo di 300 parole.
-5. Devi chiamare il tool appropriato per salvare l'artefatto della discussione.`,
-    model: { provider: "ollama", model: "lfm2.5-thinking" },
+4. Quando il dibattito è concluso, crea un sunto finale (che devi salvare tramite tool MCP adeguato) neutrale delle posizioni emerse. Il sunto deve essere massimo di 350 parole.`,
+    model: { provider: "ollama", model: "mistral-small-latest" },
   },
 
   debaters: [

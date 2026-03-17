@@ -95,7 +95,7 @@ export class DebateManager {
 
       this.turnCount++;
 
-      if (this.turnCount > 1) {
+      if (this.turnCount > debaterAgents.length) {
         const isFinished = await this.evaluateDebate();
         if (isFinished || this.turnCount >= this.maxTurns) {
           log.debug("> Il dibattito si è concluso");
