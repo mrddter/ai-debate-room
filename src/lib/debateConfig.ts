@@ -37,7 +37,7 @@ const models = {
   ollama: {
     lfm: { provider: "ollama", model: "lfm2.5-thinking" },
   },
-};
+} as const;
 
 export const debateConfig: DebateSettings = {
   defaultTopic:
