@@ -58,6 +58,25 @@ export function setupTelegramBot() {
     ctx.reply(`Usa /debate [argomento], /stop o /status.`);
   });
 
+  // Gestore messaggi di testo semplici (non comandi)
+  bot.on("text", async (ctx) => {
+    // Telegraf gestisce già i comandi separatamente, ma per sicurezza filtriamo
+    if (ctx.message.text.startsWith("/")) return;
+
+    if (manager.status === "RUNNING") {
+      return ctx.reply(
+        "Un dibattito è già in corso. Usa /stop se vuoi cambiarne il tema o /status per vederne l'avanzamento.",
+      );
+    }
+
+    const topic = ctx.message.text.trim();
+    activeChatId = ctx.chat.id;
+    ctx.reply(`🚀 Ricevuto! Avvio un dibattito su: "${topic}"...`);
+    manager.startDebate(topic).catch((err) => {
+      console.error("[Telegram] Errore avvio dibattito:", err);
+    });
+  });
+
   bot.launch();
   process.once("SIGINT", () => bot.stop("SIGINT"));
   process.once("SIGTERM", () => bot.stop("SIGTERM"));
