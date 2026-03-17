@@ -29,6 +29,17 @@ export class DebateManager {
 
   public async startDebate(customTopic?: string) {
     if (this.status === "RUNNING") return;
+
+    if (!moderatorAgent) {
+      this.broadcast("❌ Errore: Moderatore non inizializzato o disabilitato.");
+      return;
+    }
+
+    if (debaterAgents.length === 0) {
+      this.broadcast("❌ Errore: Nessun dibattitore attivo (tutti dormienti).");
+      return;
+    }
+
     this.status = "RUNNING";
     this.topic = customTopic || debateConfig.defaultTopic;
     this.turnCount = 0;
