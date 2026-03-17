@@ -30,9 +30,9 @@ const addendum =
 
 const models = {
   mistral: {
-    small: models.mistral.small,
+    small: { provider: "mistral", model: "mistral-small-latest" },
     medium: { provider: "mistral", model: "mistral-medium-latest" },
-    large: models.mistral.large,
+    large: { provider: "mistral", model: "mistral-large-latest" },
   },
   ollama: {
     lfm: { provider: "ollama", model: "lfm2.5-thinking" },
