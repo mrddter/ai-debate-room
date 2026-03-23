@@ -33,18 +33,42 @@ export function setupTelegramBot() {
     activeChatId = null;
   });
 
+  manager.setOnSelectionRequired(async (selection, allAvailable) => {
+    if (!activeChatId) return;
+
+    const selectedIds = selection.map((s) => s.id);
+    const unselected = allAvailable.filter((d) => !selectedIds.includes(d.id));
+
+    let msg = `🤔 **Il moderatore ha proposto i seguenti partecipanti:**\n\n`;
+    for (const sel of selection) {
+      const config = allAvailable.find((d) => d.id === sel.id);
+      msg += `✅ **${config?.name || sel.id}**\n_Motivo: ${sel.reason}_\n\n`;
+    }
+
+    msg += `❌ **Debaters non selezionati:**\n`;
+    for (const uns of unselected) {
+      msg += `- ${uns.name} (${uns.id})\n`;
+    }
+
+    msg += `\nRispondi con **"conferma"** (o "ok") per avviare il dibattito, oppure scrivi le tue modifiche (es. "aggiungi l'esperto UX/UI e rimuovi opponent").`;
+
+    await bot.telegram
+      .sendMessage(activeChatId, msg, { parse_mode: "Markdown" })
+      .catch(() => {});
+  });
+
   bot.command(["start", "help"], (ctx) =>
     ctx.reply("Benvenuto! Usa /debate [argomento], /stop o /status."),
   );
   bot.command("debate", async (ctx) => {
-    if (manager.status === "RUNNING")
-      return ctx.reply("Dibattito in corso. Usa /stop prima.");
+    if (manager.status === "RUNNING" || manager.status === "SELECTING_DEBATERS")
+      return ctx.reply("Dibattito in corso o in fase di selezione. Usa /stop prima.");
     const topicMatch = ctx.message.text.match(/^\/debate(?:\s+(.+))?$/i);
     activeChatId = ctx.chat.id;
     manager.startDebate(topicMatch?.[1]?.trim()).catch(() => {});
   });
   bot.command("stop", async (ctx) => {
-    if (manager.status !== "RUNNING")
+    if (manager.status === "IDLE")
       return ctx.reply("Nessun dibattito in corso.");
     ctx.reply("Sto fermando il dibattito e generando un sunto...");
     await manager.stopDebate();
@@ -66,9 +90,14 @@ export function setupTelegramBot() {
       );
     }
 
+    if (manager.status === "SELECTING_DEBATERS") {
+      await manager.handleDebaterSelectionInput(ctx.message.text);
+      return;
+    }
+
     const topic = ctx.message.text.trim();
     activeChatId = ctx.chat.id;
-    ctx.reply(`🚀 Ricevuto! Avvio il dibattito..`);
+    ctx.reply(`🚀 Ricevuto! Inizio la fase di selezione debaters per il topic...`);
     manager.startDebate(topic).catch((err) => {
       console.error("[Telegram] Errore avvio dibattito:", err);
     });
