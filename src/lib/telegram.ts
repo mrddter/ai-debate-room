@@ -24,48 +24,85 @@ export function setupTelegramBot() {
   });
 
   manager.setOnMessage(async (msg) => {
+    console.log(
+      "[Telegram] Invio messaggio onMessage, activeChatId:",
+      activeChatId,
+      "msg length:",
+      msg.length,
+    );
     if (activeChatId)
       await bot.telegram
-        .sendMessage(activeChatId, msg, { parse_mode: "Markdown" })
-        .catch(() => {});
+        .sendMessage(activeChatId, msg) // Rimuovi parse_mode
+        .catch((err) =>
+          console.error("[Telegram] Errore invio messaggio onMessage:", err),
+        );
   });
   manager.setOnFinished(() => {
     activeChatId = null;
   });
 
   manager.setOnSelectionRequired(async (selection, allAvailable) => {
+    console.log(
+      "[Telegram] onSelectionRequired chiamato, activeChatId:",
+      activeChatId,
+      "selection length:",
+      selection.length,
+    );
     if (!activeChatId) return;
 
     const selectedIds = selection.map((s) => s.id);
     const unselected = allAvailable.filter((d) => !selectedIds.includes(d.id));
 
-    let msg = `🤔 **Il moderatore ha proposto i seguenti partecipanti:**\n\n`;
+    let msg = `🤔 <b>Il moderatore ha proposto i seguenti partecipanti:</b>\n\n`;
     for (const sel of selection) {
       const config = allAvailable.find((d) => d.id === sel.id);
-      msg += `✅ **${config?.name || sel.id}**\n_Motivo: ${sel.reason}_\n\n`;
+      msg += `✅ <b>${config?.name || sel.id}</b>\n<i>Motivo: ${sel.reason}</i>\n\n`;
     }
 
-    msg += `❌ **Debaters non selezionati:**\n`;
+    msg += `❌ <b>Debaters non selezionati:</b>\n`;
     for (const uns of unselected) {
       msg += `- ${uns.name} (${uns.id})\n`;
     }
 
-    msg += `\nRispondi con **"conferma"** (o "ok") per avviare il dibattito, oppure scrivi le tue modifiche (es. "aggiungi l'esperto UX/UI e rimuovi opponent").`;
+    msg += `\nRispondi con <b>"conferma"</b> (o "ok") per avviare il dibattito, oppure scrivi le tue modifiche (es. "aggiungi l'esperto UX/UI e rimuovi opponent").`;
 
+    console.log(
+      "[Telegram] Invio messaggio selezione, msg length:",
+      msg.length,
+    );
+    console.log("[Telegram] Messaggio:", msg.substring(0, 500) + "..."); // Log parte del messaggio
     await bot.telegram
-      .sendMessage(activeChatId, msg, { parse_mode: "Markdown" })
-      .catch(() => {});
+      .sendMessage(activeChatId, msg) // Rimuovi parse_mode per testo semplice
+      .catch((err) =>
+        console.error("[Telegram] Errore invio messaggio selezione:", err),
+      );
   });
 
   bot.command(["start", "help"], (ctx) =>
     ctx.reply("Benvenuto! Usa /debate [argomento], /stop o /status."),
   );
   bot.command("debate", async (ctx) => {
+    console.log("[Telegram] Comando /debate ricevuto, chat.id:", ctx.chat.id);
     if (manager.status === "RUNNING" || manager.status === "SELECTING_DEBATERS")
-      return ctx.reply("Dibattito in corso o in fase di selezione. Usa /stop prima.");
+      return ctx.reply(
+        "Dibattito in corso o in fase di selezione. Usa /stop prima.",
+      );
     const topicMatch = ctx.message.text.match(/^\/debate(?:\s+(.+))?$/i);
     activeChatId = ctx.chat.id;
-    manager.startDebate(topicMatch?.[1]?.trim()).catch(() => {});
+    console.log(
+      "[Telegram] activeChatId impostato a:",
+      activeChatId,
+      "topic:",
+      topicMatch?.[1]?.trim(),
+    );
+    try {
+      await manager.startDebate(topicMatch?.[1]?.trim());
+    } catch (err) {
+      console.error("[Telegram] Errore in /debate:", err);
+      ctx.reply(
+        "Errore interno durante l'avvio del dibattito. Controlla i log del server.",
+      );
+    }
   });
   bot.command("stop", async (ctx) => {
     if (manager.status === "IDLE")
@@ -97,7 +134,9 @@ export function setupTelegramBot() {
 
     const topic = ctx.message.text.trim();
     activeChatId = ctx.chat.id;
-    ctx.reply(`🚀 Ricevuto! Inizio la fase di selezione debaters per il topic...`);
+    ctx.reply(
+      `🚀 Ricevuto! Inizio la fase di selezione debaters per il topic...`,
+    );
     manager.startDebate(topic).catch((err) => {
       console.error("[Telegram] Errore avvio dibattito:", err);
     });
