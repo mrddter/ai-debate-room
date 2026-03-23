@@ -1,5 +1,5 @@
 import { Agent } from "@mastra/core/agent";
-import { debateConfig } from "./debateConfig";
+import { AgentConfig, debateConfig } from "./debateConfig";
 import { saveArtifactTool } from "../mcp/saveArtifactTool";
 import { createVolcanicAgent } from "./volcanicAI";
 
@@ -15,12 +15,6 @@ export async function initializeAgents() {
     });
   }
 
-  debaterAgents = await Promise.all(
-    debateConfig.debaters
-      .filter((config) => config.enabled)
-      .map((config) => createVolcanicAgent(config)),
-  );
-
   judgeAgents = await Promise.all(
     debateConfig.judges
       .filter((config) => config.enabled)
@@ -29,5 +23,11 @@ export async function initializeAgents() {
 
   log.info("Moderator " + moderatorAgent.id);
   log.info("Judges " + judgeAgents.length);
-  log.info("Debaters " + debaterAgents.length);
+}
+
+export async function initializeDebaterAgents(selectedConfigs: AgentConfig[]) {
+  debaterAgents = await Promise.all(
+    selectedConfigs.map((config) => createVolcanicAgent(config))
+  );
+  log.info("Debaters Initialized: " + debaterAgents.length);
 }

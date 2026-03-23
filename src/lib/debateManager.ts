@@ -1,12 +1,19 @@
-import { debateConfig, JudgeOutput } from "./debateConfig";
-import { moderatorAgent, debaterAgents, judgeAgents } from "./agents";
+import * as fs from "fs";
+import * as path from "path";
+import { debateConfig, JudgeOutput, AgentConfig } from "./debateConfig";
+import { moderatorAgent, debaterAgents, judgeAgents, initializeDebaterAgents } from "./agents";
 import * as log from "@volcanicminds/tools/logger";
 
-export type DebateStatus = "IDLE" | "RUNNING" | "FINISHED";
+export type DebateStatus = "IDLE" | "SELECTING_DEBATERS" | "RUNNING" | "FINISHED";
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
   name?: string;
+}
+
+export interface DebaterSelection {
+  id: string;
+  reason: string;
 }
 
 export class DebateManager {
@@ -17,8 +24,12 @@ export class DebateManager {
   public history: ChatMessage[] = [];
 
   private currentDebaterIndex = 0;
+  public allAvailableDebaters: AgentConfig[] = [];
+  public currentSelection: DebaterSelection[] = [];
+
   private onMessageCallback?: (msg: string) => void;
   private onFinishedCallback?: () => void;
+  private onSelectionRequiredCallback?: (selection: DebaterSelection[], allAvailable: AgentConfig[]) => void;
 
   public setOnMessage(cb: (msg: string) => void) {
     this.onMessageCallback = cb;
@@ -26,27 +37,107 @@ export class DebateManager {
   public setOnFinished(cb: () => void) {
     this.onFinishedCallback = cb;
   }
+  public setOnSelectionRequired(cb: (selection: DebaterSelection[], allAvailable: AgentConfig[]) => void) {
+    this.onSelectionRequiredCallback = cb;
+  }
+
+  private async loadAvailableDebaters(): Promise<AgentConfig[]> {
+    const debatersDir = path.join(__dirname, "..", "debaters");
+    const files = fs.readdirSync(debatersDir).filter(f => f.match(/\.(ts|js)$/) && !f.startsWith("index."));
+    const configs: AgentConfig[] = [];
+
+    for (const file of files) {
+      try {
+        const module = await import(path.join(debatersDir, file));
+        if (module.default && module.default.id) {
+          configs.push(module.default as AgentConfig);
+        }
+      } catch (err) {
+        log.error(`Failed to load debater ${file}: ${err}`);
+      }
+    }
+    return configs;
+  }
 
   public async startDebate(customTopic?: string) {
-    if (this.status === "RUNNING") return;
+    if (this.status === "RUNNING" || this.status === "SELECTING_DEBATERS") return;
 
     if (!moderatorAgent) {
       this.broadcast("❌ Errore: Moderatore non inizializzato o disabilitato.");
       return;
     }
 
-    if (debaterAgents.length === 0) {
-      this.broadcast("❌ Errore: Nessun dibattitore attivo (tutti dormienti).");
-      return;
-    }
-
-    this.status = "RUNNING";
+    this.status = "SELECTING_DEBATERS";
     this.topic = customTopic || debateConfig.defaultTopic;
     this.turnCount = 0;
     this.history = [];
     this.currentDebaterIndex = 0;
-    this.broadcast(`🎙️ **DIBATTITO AVVIATO** 🎙️\n**Tema:** ${this.topic}\n`);
-    await this.runTurn();
+    this.currentSelection = [];
+
+    this.broadcast(`⏳ Valutazione dell'argomento e selezione dei partecipanti ottimali...`);
+
+    this.allAvailableDebaters = await this.loadAvailableDebaters();
+    await this.proposeDebaters();
+  }
+
+  private async proposeDebaters(userFeedback?: string) {
+    const rosterList = this.allAvailableDebaters
+      .map(d => `- ID: ${d.id} | Name: ${d.name} | Descrizione: ${d.instructions}`)
+      .join("\n\n");
+
+    let prompt = `Sei il moderatore. L'argomento del dibattito è: "${this.topic}".
+Ecco l'elenco di tutti i profili disponibili per partecipare:
+${rosterList}
+
+Seleziona ALMENO 5 e MASSIMO 10 debaters che ritieni più adatti a sviscerare questo argomento da diverse angolazioni.
+Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del debater) e "reason" (una breve spiegazione del perché lo hai scelto, max 20 parole).`;
+
+    if (userFeedback) {
+      prompt += `\n\nAttenzione, l'utente ha fornito un feedback sulla tua precedente selezione. Modifica la selezione tenendo conto di questo feedback: "${userFeedback}". Rispondi sempre e solo con l'array JSON aggiornato.`;
+    }
+
+    try {
+      const response = await moderatorAgent.generate(prompt);
+      let text = response.text || "[]";
+      text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+      const selection = JSON.parse(text) as DebaterSelection[];
+      this.currentSelection = selection;
+
+      if (this.onSelectionRequiredCallback) {
+        this.onSelectionRequiredCallback(this.currentSelection, this.allAvailableDebaters);
+      }
+    } catch (err) {
+      log.error("Errore durante la selezione dei debaters: " + err);
+      this.broadcast("❌ Errore durante la selezione dei debaters. Annullamento.");
+      this.status = "IDLE";
+    }
+  }
+
+  public async handleDebaterSelectionInput(input: string) {
+    if (this.status !== "SELECTING_DEBATERS") return;
+
+    if (input.trim().toLowerCase() === "conferma" || input.trim().toLowerCase() === "ok") {
+      this.broadcast(`✅ Selezione confermata. Inizializzazione in corso...`);
+
+      const selectedConfigs = this.currentSelection
+        .map(sel => this.allAvailableDebaters.find(d => d.id === sel.id))
+        .filter((c): c is AgentConfig => !!c);
+
+      if (selectedConfigs.length === 0) {
+        this.broadcast("❌ Nessun debater selezionato valido. Annullamento.");
+        this.status = "IDLE";
+        return;
+      }
+
+      await initializeDebaterAgents(selectedConfigs);
+
+      this.status = "RUNNING";
+      this.broadcast(`🎙️ **DIBATTITO AVVIATO** 🎙️\n**Tema:** ${this.topic}\n`);
+      await this.runTurn();
+    } else {
+      this.broadcast(`🔄 Rielaborazione della selezione in base al tuo feedback...`);
+      await this.proposeDebaters(input);
+    }
   }
 
   public async stopDebate() {
