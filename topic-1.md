@@ -1,6 +1,6 @@
 ### 🎯 Topic di Lancio: Executive Briefing "Progetto Micro-SaaS - Alla ricerca della Noia Redditizia"
 
-**Oggetto del Tavolo:** Brainstorming, scontro e validazione per individuare **5 idee di business Micro-SaaS** gestite al 100% da uno o più agenti AI, focalizzate su mercati B2B di nicchia, tradizionali e poco digitalizzati.
+**Oggetto del Tavolo:** Brainstorming, scontro e validazione per individuare **5 idee di business Micro-SaaS** gestite al 100% da uno o più agenti AI. Idee focalizzate su mercati B2B.
 
 **Il Contesto e l'Obiettivo:**
 Dobbiamo creare una macchina da reddito (Target: minimo 2.000€ di MRR costante, massimo MRR di 50.000€ ma non c'è differenza fra i due valori, quel che conta è l'idea che rispetti quanto qui definito) con intervento umano quasi nullo. Il sistema sarà gestito da un agente o uno sciame di agenti AI (modelli attuali non di domani) orchestrati per coprire l'intero ciclo di vita aziendale:

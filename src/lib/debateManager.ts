@@ -68,9 +68,7 @@ export class DebateManager {
    * Returns a formatted roster of active debaters for the moderator prompt.
    */
   private getDebaterRoster(): string {
-    return debaterAgents
-      .map((d) => `- ${d.id}: ${d.name}`)
-      .join("\n");
+    return debaterAgents.map((d) => `- ${d.id}: ${d.name}`).join("\n");
   }
 
   /**
@@ -108,7 +106,7 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
           content: result.transition,
           name: moderatorAgent.name,
         });
-        this.broadcast(`**[${moderatorAgent.name}]**\n${result.transition}`);
+        this.broadcast(`**[${moderatorAgent.name}]**\n\n${result.transition}`);
       }
 
       // Find the chosen debater by ID
@@ -151,7 +149,7 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
           content,
           name: moderatorAgent.name,
         });
-        this.broadcast(`**[${moderatorAgent.name}]**\n${content}`);
+        this.broadcast(`**[${moderatorAgent.name}]**\n\n${content}`);
       } else {
         // 1. Il debater corrente parla
         const debater = debaterAgents[this.currentDebaterIndex];
@@ -161,7 +159,7 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
         const response = await debater.generate(prompt);
         const content = response.text || "";
         this.history.push({ role: "assistant", content, name: debater.name });
-        this.broadcast(`**[${debater.name}]**\n${content}`);
+        this.broadcast(`**[${debater.name}]**\n\n${content}`);
 
         // 2. Il moderatore processa la risposta e sceglie il prossimo
         await this.routeNextSpeaker(debater.name);
@@ -177,7 +175,7 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
           return;
         }
       }
-      setTimeout(() => this.runTurn(), 3000);
+      setTimeout(() => this.runTurn(), 1100);
     } catch (err) {
       this.stopDebate();
     }
@@ -218,10 +216,10 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
   private async finishDebate(interrupted: boolean = false) {
     this.status = "FINISHED";
     this.broadcast(
-      `🏁 **Il dibattito si è concluso${interrupted ? ' anticipatamente' : ''}.** Moderatore elabora sunto...`,
+      `🏁 **Il dibattito si è concluso${interrupted ? " anticipatamente" : ""}.** Moderatore elabora sunto...`,
     );
     try {
-      const prompt = `Dibattito terminato${interrupted ? ' anticipatamente (interrotto)' : ''}. Cronologia:\n${this.formatHistoryForPrompt()}\nFai un sunto neutrale della discussione fin qui svoltasi, evidenziando i punti in comune o i risultati parziali, e indica che il dibattito è stato interrotto (se applicabile). Poi usa il tool per salvare l'artefatto. Massimo 400 parole.`;
+      const prompt = `Dibattito terminato${interrupted ? " anticipatamente (interrotto)" : ""}. Cronologia:\n${this.formatHistoryForPrompt()}\nFai un sunto neutrale della discussione fin qui svoltasi, evidenziando i punti in comune o i risultati parziali, e indica che il dibattito è stato interrotto (se applicabile). Poi usa il tool per salvare l'artefatto. Massimo 400 parole.`;
       const response = await moderatorAgent.generate(prompt);
       const content = response.text || "";
       this.history.push({

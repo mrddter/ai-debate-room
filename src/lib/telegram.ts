@@ -68,7 +68,7 @@ export function setupTelegramBot() {
 
     const topic = ctx.message.text.trim();
     activeChatId = ctx.chat.id;
-    ctx.reply(`🚀 Ricevuto! Avvio un dibattito su: "${topic}"...`);
+    ctx.reply(`🚀 Ricevuto! Avvio il dibattito..`);
     manager.startDebate(topic).catch((err) => {
       console.error("[Telegram] Errore avvio dibattito:", err);
     });
