@@ -32,7 +32,7 @@ export function setupTelegramBot() {
     );
     if (activeChatId)
       await bot.telegram
-        .sendMessage(activeChatId, msg) // Rimuovi parse_mode
+        .sendMessage(activeChatId, msg, { parse_mode: "HTML" }) // Usa HTML
         .catch((err) =>
           console.error("[Telegram] Errore invio messaggio onMessage:", err),
         );
@@ -72,7 +72,7 @@ export function setupTelegramBot() {
     );
     console.log("[Telegram] Messaggio:", msg.substring(0, 500) + "..."); // Log parte del messaggio
     await bot.telegram
-      .sendMessage(activeChatId, msg) // Rimuovi parse_mode per testo semplice
+      .sendMessage(activeChatId, msg, { parse_mode: "HTML" })
       .catch((err) =>
         console.error("[Telegram] Errore invio messaggio selezione:", err),
       );
