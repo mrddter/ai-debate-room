@@ -25,12 +25,19 @@ export interface DebaterSelection {
   reason: string;
 }
 
+export let activeDebate: DebateManager | null = null;
+
 export class DebateManager {
   public status: DebateStatus = "IDLE";
   public topic: string = debateConfig.defaultTopic;
   public turnCount: number = 0;
   public maxTurns: number = debateConfig.maxTurns;
   public history: ChatMessage[] = [];
+
+  public startTime: Date | null = null;
+  public endTime: Date | null = null;
+  public judgesAgree: number = 0;
+  public judgesDisagree: number = 0;
 
   private currentDebaterIndex = 0;
   public allAvailableDebaters: AgentConfig[] = [];
@@ -86,6 +93,7 @@ export class DebateManager {
   }
 
   public async startDebate(customTopic?: string) {
+    activeDebate = this;
     console.log("[DebateManager] startDebate chiamato con topic:", customTopic);
     if (this.status === "RUNNING" || this.status === "SELECTING_DEBATERS") {
       console.log("[DebateManager] Debate già in corso, ritorno.");
@@ -102,6 +110,10 @@ export class DebateManager {
     this.topic = customTopic || debateConfig.defaultTopic;
     this.turnCount = 0;
     this.history = [];
+    this.startTime = new Date();
+    this.endTime = null;
+    this.judgesAgree = 0;
+    this.judgesDisagree = 0;
     this.currentDebaterIndex = 0;
     this.currentSelection = [];
 
@@ -371,6 +383,10 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
         if (result.maturityDegree >= 5) matureCount++;
       } catch (err) {}
     }
+
+    this.judgesAgree = readyCount;
+    this.judgesDisagree = judgesCount - readyCount;
+
     if (readyCount === judgesCount) return true;
     const twoThirds = Math.ceil((judgesCount * 2) / 3);
     if (readyCount >= twoThirds && matureCount >= twoThirds) return true;
@@ -379,11 +395,12 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
 
   private async finishDebate(interrupted: boolean = false) {
     this.status = "FINISHED";
+    this.endTime = new Date();
     this.broadcast(
       `🏁 **Il dibattito si è concluso${interrupted ? " anticipatamente" : ""}.** Moderatore elabora sunto...`,
     );
     try {
-      const prompt = `Dibattito terminato${interrupted ? " anticipatamente (interrotto)" : ""}. Cronologia:\n${this.formatHistoryForPrompt()}\nFai un sunto neutrale della discussione fin qui svoltasi, evidenziando i punti in comune o i risultati parziali, e indica che il dibattito è stato interrotto (se applicabile). Poi usa il tool per salvare l'artefatto. Massimo 400 parole.`;
+      const prompt = `Dibattito terminato${interrupted ? " anticipatamente (interrotto)" : ""}. Cronologia:\n${this.formatHistoryForPrompt()}\nFai un sunto neutrale della discussione fin qui svoltasi, evidenziando i punti in comune o i risultati parziali, e indica che il dibattito è stato interrotto (se applicabile). Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi usa il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
       const response = await moderatorAgent.generate(prompt);
       const content = response.text || "";
       this.history.push({
