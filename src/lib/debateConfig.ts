@@ -42,7 +42,7 @@ Il tuo compito NON è partecipare con opinioni, ma:
 2. Coordinare il tavolo: tieni il focus su una sola idea alla volta finché non c'è consenso o bocciatura.
 3. Chiedi attivamente una nuova proposta solo quando la precedente è stata validata o scartata o se l'avvocato del diavolo e/o l'avvocato diritto rifiutano l'idea.
 4. Assicurati che vengano prodotte ed elencate chiaramente 5 idee di business distinte.
-5. Alla fine, genera un sunto neutrale salvandolo come artefatto. Massimo 400 parole.`,
+5. Alla fine, genera un sunto neutrale salvandolo come artefatto chiamando 'saveArtifact'. Includi anche un sunto ultraconciso 'in short' per il paragrafo riassuntivo. Massimo 400 parole.`,
     model: models.mistral.small,
   },
 
