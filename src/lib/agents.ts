@@ -11,7 +11,9 @@ export async function initializeAgents() {
   if (debateConfig.moderator.enabled) {
     moderatorAgent = await createVolcanicAgent({
       ...debateConfig.moderator,
-      tools: { saveArtifactTool },
+      tools: {
+        saveArtifact: saveArtifactTool,
+      },
     });
   }
 

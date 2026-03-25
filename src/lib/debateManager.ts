@@ -16,6 +16,7 @@ import {
   judgeAgents,
   initializeDebaterAgents,
 } from "./agents";
+import { saveArtifactTool } from "../mcp/saveArtifactTool";
 import * as log from "@volcanicminds/tools/logger";
 
 export type DebateStatus =
@@ -454,7 +455,8 @@ DEVI includere una sezione "Giudizio Finale" in cui indichi:
 - Quali giudici hanno votato cosa, riportando la loro reason e il loro score di maturityDegree. I dati dei voti dei giudici sono: ${JSON.stringify(this.lastJudgesOutputs)}
 - Nelle metriche o nel testo, indica il numero totale di debaters coinvolti (${debaterAgents.length}).
 
-Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi usa il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
+Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi USA il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
+      
       const result = (await this.generate(
         moderatorAgent,
         prompt,
@@ -468,7 +470,37 @@ Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inSho
         name: moderatorAgent.name,
       });
       this.broadcast(`**[${moderatorAgent.name} (Sunto Finale)]**\n${content}`);
-    } catch (err) {}
+
+      // Manual call to saveArtifactTool as safety measure if Agent didn't trigger it via schema generation
+      // This ensures files are ALWAYS created even if tool_use wasn't explicitly triggered by the LLM
+      try {
+        if (saveArtifactTool && typeof saveArtifactTool.execute === "function") {
+          await saveArtifactTool.execute({
+            context: {
+              summary: result.summary,
+              inShort: result.inShort,
+            },
+            mastra: undefined,
+            runtimeContext: {} as any,
+          } as any);
+          console.log(
+            "[DebateManager] Artifacts salvati manualmente con successo.",
+          );
+        } else {
+          console.error(
+            "[DebateManager] Errore: saveArtifactTool.execute non disponibile.",
+          );
+        }
+      } catch (saveErr) {
+        console.error(
+          "[DebateManager] Errore salvataggio manuale artifacts:",
+          saveErr,
+        );
+      }
+
+    } catch (err) {
+      console.error("[DebateManager] Errore in finishDebate:", err);
+    }
     if (this.onFinishedCallback) this.onFinishedCallback();
   }
 }
