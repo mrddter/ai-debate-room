@@ -1,8 +1,6 @@
-individua l'elenco degli agenti che devono partecipare con ruoli più strategici e visionari possibili, tralasciando quelli normativi, tecnici o di design.
+Lo scopo del TAVOLO è delineare la strategia di crescita dell'azienda di servizi di cui ti copio la descrizione di seguito, è molto importante che la strategia non sia banale, da evitare il classico invio email o spam, articoli, pubblicità, o altri metodi o tecniche già largamente abusate dai competitor.
 
-Lo scopo è delineare la strategia di crescita dell'azienda di servizi di cui ti copio la descrizione di seguito, è molto importante che la strategia non sia banale, il classico invio email o spam, articoli, pubblicità, o altri metodi o tecniche già largamente abusate dai competitor.
-
-La direzione deve essere quello di una strategia fresca e innovativa che permette un riconoscimento immediato del brand, ma nel contempo una raccolta di lead è Prospect davvero molto importante. È possibile fare scenari di budget su tre livelli, ossia senza budget, con 5000 € di budget, con 20.000 € di budget. Le tempistiche della strategia devono essere minimo di tre mesi ma massimo di sei mesi per iniziare a dare dei frutti. I progetti medi da attirare hanno una capacità di spesa all'intorno di 40.000 €/60.000 €.
+La direzione deve essere quella di una strategia fresca e innovativa che permette un riconoscimento immediato del brand, ma nel contempo una raccolta di lead è Prospect davvero molto importante. È possibile fare scenari di budget su tre livelli, ossia senza budget, con 5000 € di budget, con 20.000 € di budget. Le tempistiche della strategia devono essere minimo di tre mesi ma massimo di sei mesi per iniziare a dare dei frutti. I progetti medi da attirare hanno una capacità di spesa all'intorno di 40.000 €/60.000 €.
 
 AZIENDA:
 
