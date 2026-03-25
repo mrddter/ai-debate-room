@@ -69,7 +69,15 @@ export class DebateManager {
   }
 
   private async generate(agent: Agent, prompt: string): Promise<any> {
-    // await new Promise((resolve) => setTimeout(resolve, 5000));
+    console.log(
+      new Date().toISOString(),
+      `[DebateManager] Before Wait - Generating response from ${agent.name}...`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    console.log(
+      new Date().toISOString(),
+      `[DebateManager] Generating response from ${agent.name}...`,
+    );
     return agent.generate(prompt);
   }
 
@@ -156,7 +164,7 @@ export class DebateManager {
 Ecco l'elenco di tutti i profili disponibili per partecipare:
 ${rosterList}
 
-Seleziona ALMENO 5 e MASSIMO 10 debaters che ritieni più adatti a sviscerare questo argomento da diverse angolazioni.
+Seleziona ALMENO 5 e MASSIMO 13 debaters che ritieni più adatti a sviscerare questo argomento da diverse angolazioni.
 Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del debater) e "reason" (una breve spiegazione del perché lo hai scelto, max 20 parole).`;
 
     if (userFeedback) {

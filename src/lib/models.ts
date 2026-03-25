@@ -8,6 +8,9 @@ const llm = {
     medium: { provider: "mistral", model: "mistral-medium-latest" },
     large: { provider: "mistral", model: "mistral-large-latest" },
   },
+  magistral: {
+    medium: { provider: "mistral", model: "magistral-medium-2509" },
+  },
   ollama: {
     lfm: { provider: "ollama", model: "lfm2.5-thinking" },
     gemini: { provider: "ollama", model: "gemini-3-flash-preview:cloud" },
@@ -15,7 +18,7 @@ const llm = {
 } as const;
 
 export const models = {
-  moderator: llm.mistral.small,
-  judge: llm.mistral.small,
+  moderator: llm.magistral.medium,
+  judge: llm.mistral.medium,
   debater: llm.mistral.medium,
 } as const;
