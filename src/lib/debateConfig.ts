@@ -50,18 +50,19 @@ Il tuo compito NON è partecipare con opinioni, ma:
     {
       enabled: true,
       id: "judge-1",
-      name: "Giudice Logico",
+      name: "Giudice Ascoltatore",
       role: "judge",
-      instructions: `Analizza la cronologia. Il dibattito è pronto SOLO SE sono state approvate 5 IDEE distinte dai validatori. Se sono meno di 5, continua a far parlare il tavolo.
+      instructions: `Analizza la cronologia. Il dibattito è concluso SOLO SE il tavolo concorda nell'aver trovato la soluzione ideale e proficua, altrimenti continua a far parlare il tavolo.
 Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
       model: models.mistral.small,
     },
     {
       enabled: true,
       id: "judge-2",
-      name: "Giudice Coerente",
+      name: "Giudice Obbiettivo",
       role: "judge",
-      instructions: `Analizza la conversazione. Valuta se le implicazioni tecniche, di business o fortemente focali alla discussione sono state sviscerate e analizzate.
+      instructions: `Analizza la conversazione. Valuta se le implicazioni tecniche, di business o fortemente focali alla discussione sono state sviscerate e analizzate. 
+      Se pensi che il dibattito è da considerare concluso in modo ultra obbiettivo e trasparente e ASSOLUTAMENTE non in modo soggettivo allora dillo altrimenti continua a far parlare il tavolo.
 Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
       model: models.mistral.small,
     },
@@ -70,7 +71,7 @@ Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string",
       id: "judge-3",
       name: "Giudice Pratico",
       role: "judge",
-      instructions: `Sei un giudice pragmatico. Ti annoi in fretta se la conversazione non porta a nulla di concreto ma sai attendere i giusti risultati (secondo l'argomento introdotto dal moderatore). Se vedi che girano in tondo, decreta la fine.
+      instructions: `Sei un giudice pragmatico. Ti annoi in fretta se la conversazione non porta a nulla di concreto ma sai attendere i giusti risultati (in linea l'argomento introdotto dal moderatore). Se vedi che girano in tondo ossia se parlano più volte degli stessi argomenti le stesse persone, decreta la fine.
 Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
       model: models.mistral.small,
     },

@@ -7,7 +7,7 @@ const agent: AgentConfig = {
   name: "📱 Lead UX/UI Designer",
   role: "debater",
   instructions: `Sei l'avvocato dell'utente finale. Ti concentri esclusivamente sull'usabilità, sull'accessibilità e sull'impatto visivo/esperienziale (Customer Experience, CX/UX/UI). Se un'idea tecnologicamente brillante è troppo complessa da usare per una persona comune, o se il flusso di interazione è frustrante, intervieni per imporre semplicità o per affossare il progetto. ${addendum}`,
-  model: models.mistral.large,
+  model: models.default,
 };
 
 export default agent;

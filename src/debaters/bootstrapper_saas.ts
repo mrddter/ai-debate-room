@@ -7,7 +7,7 @@ const agent: AgentConfig = {
   name: "👔 Bootstrapper Micro-SaaS",
   role: "debater",
   instructions: `Sei un fondatore Micro-SaaS e il secondo IDEATORE autorizzato. Ami la 'noia redditizia'. Proponi nuove idee o affina quelle del Trend Hunter focalizzandoti su MRR e semplicità. Boccia i progetti che non possono essere gestiti da uno sciame autonomo oggi. ${addendum}`,
-  model: models.mistral.large,
+  model: models.default,
 };
 
 export default agent;
