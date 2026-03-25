@@ -23,6 +23,28 @@ export function setupTelegramBot() {
     return next();
   });
 
+  const escapeMarkdown = (text: string) => {
+    return text
+      .replace(/_/g, "\\_")
+      .replace(/\*/g, "\\*")
+      .replace(/\[/g, "\\[")
+      .replace(/\]/g, "\\]")
+      .replace(/\(/g, "\\(")
+      .replace(/\)/g, "\\)")
+      .replace(/~/g, "\\~")
+      .replace(/`/g, "\\`")
+      .replace(/>/g, "\\>")
+      .replace(/#/g, "\\#")
+      .replace(/\+/g, "\\+")
+      .replace(/-/g, "\\-")
+      .replace(/=/g, "\\=")
+      .replace(/\|/g, "\\|")
+      .replace(/\{/g, "\\{")
+      .replace(/\}/g, "\\}")
+      .replace(/\./g, "\\.")
+      .replace(/!/g, "\\!");
+  };
+
   manager.setOnMessage(async (msg) => {
     console.log(
       "[Telegram] Invio messaggio onMessage, activeChatId:",
@@ -30,12 +52,23 @@ export function setupTelegramBot() {
       "msg length:",
       msg.length,
     );
-    if (activeChatId)
-      await bot.telegram
-        .sendMessage(activeChatId, msg, { parse_mode: "Markdown" }) // Usa HTML
-        .catch((err) =>
-          console.error("[Telegram] Errore invio messaggio onMessage:", err),
+    if (activeChatId) {
+      // In Markdown mode, we can't just send raw JSON or strings with unclosed entities
+      // However, we want to keep bold for headers. We switch to MarkdownV2 or simply keep Markdown but clean content.
+      try {
+        await bot.telegram.sendMessage(activeChatId, msg, {
+          parse_mode: "Markdown",
+        });
+      } catch (err) {
+        console.error(
+          "[Telegram] Errore invio Markdown, riprovo come testo semplice:",
+          err,
         );
+        await bot.telegram
+          .sendMessage(activeChatId, msg) // Fallback to plain text
+          .catch((e) => console.error("[Telegram] Fallback fallito:", e));
+      }
+    }
   });
   manager.setOnFinished(() => {
     activeChatId = null;
