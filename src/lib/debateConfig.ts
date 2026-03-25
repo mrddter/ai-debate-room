@@ -1,4 +1,4 @@
-import { models } from "../debaters/models";
+import { models } from "../lib/models";
 import type { ModelConfig } from "./volcanicAI";
 
 export type DebateRole = "moderator" | "debater" | "judge";
