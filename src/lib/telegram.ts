@@ -50,21 +50,37 @@ export function setupTelegramBot() {
     );
     if (!activeChatId) return;
 
-    const selectedIds = selection.map((s) => s.id);
-    const unselected = allAvailable.filter((d) => !selectedIds.includes(d.id));
+    // Sort all available debaters alphabetically by name
+    const sortedAll = [...allAvailable].sort((a, b) => a.name.localeCompare(b.name));
+
+    // Create a map to securely tie each debater to a specific, stable index (1-based)
+    const debaterIndexMap = new Map<string, number>();
+    sortedAll.forEach((d, i) => debaterIndexMap.set(d.id, i + 1));
+
+    // Gather the selected debaters, preserving the stable index
+    const proposed = selection.map(sel => {
+      const config = sortedAll.find(d => d.id === sel.id);
+      return {
+        id: sel.id,
+        name: config?.name || sel.id,
+        index: debaterIndexMap.get(sel.id) || 0
+      };
+    });
+
+    // Sort the proposed list alphabetically as well
+    proposed.sort((a, b) => a.name.localeCompare(b.name));
 
     let msg = `🤔 <b>Il moderatore ha proposto i seguenti partecipanti:</b>\n\n`;
-    for (const sel of selection) {
-      const config = allAvailable.find((d) => d.id === sel.id);
-      msg += `✅ <b>${config?.name || sel.id}</b>\n<i>Motivo: ${sel.reason}</i>\n\n`;
+    for (const p of proposed) {
+      msg += `${p.index}- ${p.name}\n`;
     }
 
-    msg += `❌ <b>Debaters non selezionati:</b>\n`;
-    for (const uns of unselected) {
-      msg += `- ${uns.name} (${uns.id})\n`;
+    msg += `\n<b>Elenco di tutti i debaters:</b>\n`;
+    for (const d of sortedAll) {
+      msg += `${debaterIndexMap.get(d.id)}- ${d.name}\n`;
     }
 
-    msg += `\nRispondi con <b>"conferma"</b> (o "ok") per avviare il dibattito, oppure scrivi le tue modifiche (es. "aggiungi l'esperto UX/UI e rimuovi opponent").`;
+    msg += `\nRispondi con "conferma" (o "ok") per avviare il dibattito, oppure scrivi le tue modifiche (es. "aggiungi debaters 1, 3,4 e rimuovi 7,8").`;
 
     console.log(
       "[Telegram] Invio messaggio selezione, msg length:",
