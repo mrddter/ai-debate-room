@@ -1,5 +1,5 @@
 import type { AgentConfig } from "../lib/debateConfig";
-import { models, addendum } from "./index";
+import { models, addendum } from "../lib/models";
 
 const agent: AgentConfig = {
   enabled: true,

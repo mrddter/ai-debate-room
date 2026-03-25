@@ -1,3 +1,4 @@
+import { models } from "../debaters/models";
 import type { ModelConfig } from "./volcanicAI";
 
 export type DebateRole = "moderator" | "debater" | "judge";
@@ -26,8 +27,6 @@ export interface DebateSettings {
   moderator: AgentConfig;
   judges: AgentConfig[];
 }
-
-import { models } from "../debaters/index";
 
 export const debateConfig: DebateSettings = {
   defaultTopic:
