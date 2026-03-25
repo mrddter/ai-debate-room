@@ -72,7 +72,7 @@ export function setupTelegramBot() {
     );
     console.log("[Telegram] Messaggio:", msg.substring(0, 500) + "..."); // Log parte del messaggio
     await bot.telegram
-      .sendMessage(activeChatId, msg, { parse_mode: "Markdown" })
+      .sendMessage(activeChatId, msg, { parse_mode: "HTML" })
       .catch((err) =>
         console.error("[Telegram] Errore invio messaggio selezione:", err),
       );
