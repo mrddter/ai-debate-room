@@ -38,6 +38,7 @@ export class DebateManager {
   public endTime: Date | null = null;
   public judgesAgree: number = 0;
   public judgesDisagree: number = 0;
+  public lastJudgesOutputs: { id: string, name: string, output: JudgeOutput }[] = [];
 
   private currentDebaterIndex = 0;
   public allAvailableDebaters: AgentConfig[] = [];
@@ -137,7 +138,7 @@ export class DebateManager {
     const rosterList = this.allAvailableDebaters
       .map(
         (d) =>
-          `- ID: ${d.id} | Name: ${d.name} | Descrizione: ${d.instructions}`,
+          `- ID: ${d.id} | Name: ${d.name} | Skills: ${d.skills?.join(', ') || ''} | WhenToUse: ${d.whenToUse || ''} | Descrizione: ${d.description ? d.description + ' - ' : ''}${d.instructions}`,
       )
       .join("\n\n");
 
@@ -358,11 +359,12 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
   }
 
   private async evaluateDebate(): Promise<boolean> {
+    this.lastJudgesOutputs = [];
     const historyText = this.formatHistoryForPrompt();
     const prompt = `Ecco la cronologia:\n${historyText}\n
-Valuta se il dibattito è giunto a una conclusione. Le regole per terminare sono:
-1. Obiettivo Raggiunto: Sono state identificate e validate chiaramente 5 idee distinte (isReady: true).
-2. Tempo Spreco/Loop: I partecipanti girano in tondo senza progredire o proporre nuove idee valide da troppo tempo (isReady: true, indicare reason adeguata).
+Valuta se il dibattito è giunto a una conclusione tenendo conto del tuo specifico ruolo di giudice. Le regole generali per terminare sono:
+1. Obiettivo Raggiunto: L'argomento è stato analizzato a fondo ed è stato raggiunto un esito o una conclusione chiara. (isReady: true).
+2. Tempo Spreco/Loop: I partecipanti girano in tondo ripetendosi senza progredire da troppo tempo (isReady: true, indicare reason adeguata).
 
 Se il dibattito sta procedendo proficuamente ma non ha ancora raggiunto l'obiettivo, rispondi con isReady: false.
 Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "maturityDegree": numero_da_1_a_5}`;
@@ -379,6 +381,7 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
           .replace(/\`\`\`/g, "")
           .trim();
         const result: JudgeOutput = JSON.parse(text);
+        this.lastJudgesOutputs.push({ id: judge.id, name: judge.name, output: result });
         if (result.isReady) readyCount++;
         if (result.maturityDegree >= 5) matureCount++;
       } catch (err) {}
@@ -400,7 +403,15 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
       `🏁 **Il dibattito si è concluso${interrupted ? " anticipatamente" : ""}.** Moderatore elabora sunto...`,
     );
     try {
-      const prompt = `Dibattito terminato${interrupted ? " anticipatamente (interrotto)" : ""}. Cronologia:\n${this.formatHistoryForPrompt()}\nFai un sunto neutrale della discussione fin qui svoltasi, evidenziando i punti in comune o i risultati parziali, e indica che il dibattito è stato interrotto (se applicabile). Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi usa il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
+      const prompt = `Dibattito terminato${interrupted ? " anticipatamente (interrotto)" : ""}. Cronologia:\n${this.formatHistoryForPrompt()}\n
+Fai un sunto neutrale della discussione fin qui svoltasi.
+
+DEVI includere una sezione "Giudizio Finale" in cui indichi:
+- Se il dibattito si è concluso per il raggiungimento massimo dei turns (${this.maxTurns}) oppure per il voto dei giudici.
+- Quali giudici hanno votato cosa, riportando la loro reason e il loro score di maturityDegree. I dati dei voti dei giudici sono: ${JSON.stringify(this.lastJudgesOutputs)}
+- Nelle metriche o nel testo, indica il numero totale di debaters coinvolti (${debaterAgents.length}).
+
+Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi usa il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
       const response = await moderatorAgent.generate(prompt);
       const content = response.text || "";
       this.history.push({
