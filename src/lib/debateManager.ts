@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { Agent } from "@mastra/core/agent";
 import { debateConfig, JudgeOutput, AgentConfig } from "./debateConfig";
 import {
   moderatorAgent,
@@ -38,7 +39,11 @@ export class DebateManager {
   public endTime: Date | null = null;
   public judgesAgree: number = 0;
   public judgesDisagree: number = 0;
-  public lastJudgesOutputs: { id: string, name: string, output: JudgeOutput }[] = [];
+  public lastJudgesOutputs: {
+    id: string;
+    name: string;
+    output: JudgeOutput;
+  }[] = [];
 
   private currentDebaterIndex = 0;
   public allAvailableDebaters: AgentConfig[] = [];
@@ -61,6 +66,11 @@ export class DebateManager {
     cb: (selection: DebaterSelection[], allAvailable: AgentConfig[]) => void,
   ) {
     this.onSelectionRequiredCallback = cb;
+  }
+
+  private async generate(agent: Agent, prompt: string): Promise<any> {
+    // await new Promise((resolve) => setTimeout(resolve, 5000));
+    return agent.generate(prompt);
   }
 
   private async loadAvailableDebaters(): Promise<AgentConfig[]> {
@@ -138,7 +148,7 @@ export class DebateManager {
     const rosterList = this.allAvailableDebaters
       .map(
         (d) =>
-          `- ID: ${d.id} | Name: ${d.name} | Skills: ${d.skills?.join(', ') || ''} | WhenToUse: ${d.whenToUse || ''} | Descrizione: ${d.description ? d.description + ' - ' : ''}${d.instructions}`,
+          `- ID: ${d.id} | Name: ${d.name} | Skills: ${d.skills?.join(", ") || ""} | WhenToUse: ${d.whenToUse || ""} | Descrizione: ${d.description ? d.description + " - " : ""}${d.instructions}`,
       )
       .join("\n\n");
 
@@ -158,7 +168,7 @@ Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del 
       prompt.substring(0, 200) + "...",
     );
     try {
-      const response = await moderatorAgent.generate(prompt);
+      const response = await this.generate(moderatorAgent, prompt);
       console.log(
         "[DebateManager] Risposta moderatore ricevuta, lunghezza:",
         response.text?.length,
@@ -264,7 +274,7 @@ Basandoti sul contenuto dell'ultimo intervento e sul flusso della discussione, d
 Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition": "breve commento di transizione max 30 parole"}`;
 
     try {
-      const response = await moderatorAgent.generate(prompt);
+      const response = await this.generate(moderatorAgent, prompt);
       let text = response.text || "{}";
       text = text
         .replace(/```json/g, "")
@@ -319,7 +329,7 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
         log.debug("> Il dibattito ha inizio");
 
         const prompt = `Il dibattito sta per iniziare. Tema: "${this.topic}". Introduci brevemente (max 100 parole) e dai la parola a: ${debaterAgents[0].name}.`;
-        const response = await moderatorAgent.generate(prompt);
+        const response = await this.generate(moderatorAgent, prompt);
         const content = response.text || "";
         this.history.push({
           role: "assistant",
@@ -333,7 +343,7 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
         log.debug("> La parola a " + debater.id);
 
         const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.`;
-        const response = await debater.generate(prompt);
+        const response = await this.generate(debater, prompt);
         const content = response.text || "";
         this.history.push({ role: "assistant", content, name: debater.name });
         this.broadcast(`**[${debater.name}]**\n\n${content}`);
@@ -374,14 +384,18 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
     const judgesCount = judgeAgents.length;
     for (const judge of judgeAgents) {
       try {
-        const response = await judge.generate(prompt);
+        const response = await this.generate(judge, prompt);
         let text = response.text || "{}";
         text = text
           .replace(/\`\`\`json/g, "")
           .replace(/\`\`\`/g, "")
           .trim();
         const result: JudgeOutput = JSON.parse(text);
-        this.lastJudgesOutputs.push({ id: judge.id, name: judge.name, output: result });
+        this.lastJudgesOutputs.push({
+          id: judge.id,
+          name: judge.name,
+          output: result,
+        });
         if (result.isReady) readyCount++;
         if (result.maturityDegree >= 5) matureCount++;
       } catch (err) {}
@@ -412,7 +426,7 @@ DEVI includere una sezione "Giudizio Finale" in cui indichi:
 - Nelle metriche o nel testo, indica il numero totale di debaters coinvolti (${debaterAgents.length}).
 
 Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi usa il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
-      const response = await moderatorAgent.generate(prompt);
+      const response = await this.generate(moderatorAgent, prompt);
       const content = response.text || "";
       this.history.push({
         role: "assistant",
