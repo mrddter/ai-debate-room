@@ -1,5 +1,7 @@
 import { models } from "../lib/models";
 import type { ModelConfig } from "./volcanicAI";
+import { judgeOutputSchema } from "./schemas";
+import { z } from "zod";
 
 export type DebateRole = "moderator" | "debater" | "judge";
 
@@ -15,11 +17,7 @@ export interface AgentConfig {
   whenToUse?: string;
 }
 
-export interface JudgeOutput {
-  isReady: boolean;
-  reason: string;
-  maturityDegree: number;
-}
+export type JudgeOutput = z.infer<typeof judgeOutputSchema>;
 
 export interface DebateSettings {
   defaultTopic: string;
@@ -54,7 +52,7 @@ Il tuo compito NON è partecipare con opinioni, ma:
       id: "judge-1",
       name: "Giudice della Concretezza",
       role: "judge",
-      instructions: `Analizza la conversazione. Valuta se il dibattito produce punti concreti e azionabili. Se il tavolo ha raggiunto conclusioni chiare e applicabili, decreta la fine. Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
+      instructions: `Analizza la conversazione. Valuta se il dibattito produce punti concreti e azionabili. Se il tavolo ha raggiunto conclusioni chiare e applicabili, decreta la fine.`,
       model: models.judge,
     },
     {
@@ -62,7 +60,7 @@ Il tuo compito NON è partecipare con opinioni, ma:
       id: "judge-2",
       name: "Giudice del Flusso",
       role: "judge",
-      instructions: `Sei un giudice del flusso del dibattito. Analizza se i partecipanti girano in tondo ripetendo gli stessi argomenti. Se il dibattito è in stallo o se la discussione è matura ed esaurita, decreta la fine. Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
+      instructions: `Sei un giudice del flusso del dibattito. Analizza se i partecipanti girano in tondo ripetendo gli stessi argomenti. Se il dibattito è in stallo o se la discussione è matura ed esaurita, decreta la fine.`,
       model: models.judge,
     },
     {
@@ -70,7 +68,7 @@ Il tuo compito NON è partecipare con opinioni, ma:
       id: "judge-3",
       name: "Giudice Obbiettivo",
       role: "judge",
-      instructions: `Analizza la conversazione in modo ultra obiettivo. Valuta se le implicazioni centrali dell'argomento sono state sviscerate. Se pensi che il dibattito sia maturo e si possa considerare concluso in modo trasparente, dillo. Rispondi SEMPRE e SOLO in formato JSON: {"isReady": boolean, "reason": "string", "maturityDegree": number (1-5)}`,
+      instructions: `Analizza la conversazione in modo ultra obiettivo. Valuta se le implicazioni centrali dell'argomento sono state sviscerate. Se pensi che il dibattito sia maturo e si possa considerare concluso in modo trasparente, dillo.`,
       model: models.judge,
     },
   ],

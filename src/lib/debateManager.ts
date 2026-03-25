@@ -1,7 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
 import { Agent } from "@mastra/core/agent";
+import { z } from "zod";
 import { debateConfig, JudgeOutput, AgentConfig } from "./debateConfig";
+import {
+  debaterSelectionSchema,
+  routeNextSpeakerSchema,
+  speechSchema,
+  judgeOutputSchema,
+  summarySchema,
+} from "./schemas";
 import {
   moderatorAgent,
   debaterAgents,
@@ -68,17 +76,30 @@ export class DebateManager {
     this.onSelectionRequiredCallback = cb;
   }
 
-  private async generate(agent: Agent, prompt: string): Promise<any> {
+  private async generate<T>(
+    agent: Agent,
+    prompt: string,
+    schema?: z.ZodSchema<T>,
+  ): Promise<T | string> {
     console.log(
       new Date().toISOString(),
-      `[DebateManager] Before Wait - Generating response from ${agent.name}...`,
+      `[DebateManager] Before Wait - Generating ${schema ? "structured " : ""}response from ${agent.name}...`,
     );
     await new Promise((resolve) => setTimeout(resolve, 5000));
     console.log(
       new Date().toISOString(),
       `[DebateManager] Generating response from ${agent.name}...`,
     );
-    return agent.generate(prompt);
+
+    if (schema) {
+      const response = await agent.generate(prompt, {
+        output: schema,
+      });
+      return response.object as T;
+    }
+
+    const response = await agent.generate(prompt);
+    return response.text;
   }
 
   private async loadAvailableDebaters(): Promise<AgentConfig[]> {
@@ -176,18 +197,15 @@ Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del 
       prompt.substring(0, 200) + "...",
     );
     try {
-      const response = await this.generate(moderatorAgent, prompt);
-      console.log(
-        "[DebateManager] Risposta moderatore ricevuta, lunghezza:",
-        response.text?.length,
+      const selectionResult = await this.generate(
+        moderatorAgent,
+        prompt,
+        debaterSelectionSchema,
       );
-      let text = response.text || "[]";
-      text = text
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim();
-      console.log("[DebateManager] Testo pulito per JSON.parse:", text);
-      const selection = JSON.parse(text) as DebaterSelection[];
+
+      const selection = (selectionResult as z.infer<typeof debaterSelectionSchema>)
+        .debaters;
+
       console.log(
         "[DebateManager] Selezione parsata:",
         selection.length,
@@ -282,17 +300,11 @@ Basandoti sul contenuto dell'ultimo intervento e sul flusso della discussione, d
 Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition": "breve commento di transizione max 30 parole"}`;
 
     try {
-      const response = await this.generate(moderatorAgent, prompt);
-      let text = response.text || "{}";
-      text = text
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim();
-
-      const result = JSON.parse(text) as {
-        nextSpeakerId: string;
-        transition: string;
-      };
+      const result = (await this.generate(
+        moderatorAgent,
+        prompt,
+        routeNextSpeakerSchema,
+      )) as z.infer<typeof routeNextSpeakerSchema>;
 
       // Broadcast the moderator's transition comment
       if (result.transition) {
@@ -337,7 +349,12 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
         log.debug("> Il dibattito ha inizio");
 
         const prompt = `Il dibattito sta per iniziare. Tema: "${this.topic}". Introduci brevemente (max 100 parole) e dai la parola a: ${debaterAgents[0].name}.`;
-        const response = await this.generate(moderatorAgent, prompt);
+        const response = (await this.generate(
+          moderatorAgent,
+          prompt,
+          speechSchema,
+        )) as z.infer<typeof speechSchema>;
+
         const content = response.text || "";
         this.history.push({
           role: "assistant",
@@ -351,7 +368,12 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
         log.debug("> La parola a " + debater.id);
 
         const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.`;
-        const response = await this.generate(debater, prompt);
+        const response = (await this.generate(
+          debater,
+          prompt,
+          speechSchema,
+        )) as z.infer<typeof speechSchema>;
+
         const content = response.text || "";
         this.history.push({ role: "assistant", content, name: debater.name });
         this.broadcast(`**[${debater.name}]**\n\n${content}`);
@@ -392,13 +414,12 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
     const judgesCount = judgeAgents.length;
     for (const judge of judgeAgents) {
       try {
-        const response = await this.generate(judge, prompt);
-        let text = response.text || "{}";
-        text = text
-          .replace(/\`\`\`json/g, "")
-          .replace(/\`\`\`/g, "")
-          .trim();
-        const result: JudgeOutput = JSON.parse(text);
+        const result = (await this.generate(
+          judge,
+          prompt,
+          judgeOutputSchema,
+        )) as JudgeOutput;
+
         this.lastJudgesOutputs.push({
           id: judge.id,
           name: judge.name,
@@ -434,8 +455,13 @@ DEVI includere una sezione "Giudizio Finale" in cui indichi:
 - Nelle metriche o nel testo, indica il numero totale di debaters coinvolti (${debaterAgents.length}).
 
 Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi usa il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
-      const response = await this.generate(moderatorAgent, prompt);
-      const content = response.text || "";
+      const result = (await this.generate(
+        moderatorAgent,
+        prompt,
+        summarySchema,
+      )) as z.infer<typeof summarySchema>;
+
+      const content = result.summary || "";
       this.history.push({
         role: "assistant",
         content,
