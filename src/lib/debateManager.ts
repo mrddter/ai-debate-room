@@ -193,7 +193,13 @@ Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del 
       prompt += `\n\nAttenzione, l'utente ha fornito un feedback sulla tua precedente selezione.
 
 ---
-Modifica la selezione ESEGUENDO IN MODO PRECISO QUANTO QUI SPECIFICATO: 
+DI SEGUITO IL MESSAGGIO DELL'UTENTE CHE DEVI ANALIZZARE PER COMPRENDERE SE:
+- devi scegliere in modo autonomo un elenco di debaters (nel caso che ti abbia fornito un topic)
+- variare l'elenco con le modifiche richieste dall'utente (nel caso ti stia dando un elenco di numeri o istruzioni in merito)
+
+RICORDATI, puoi proporre lpelenco dei debaters ma è l'utente che sceglie.
+QUESTO, il prompt dell'utente da analizzare i nfunziona di quanto detto prima:
+
 ${userFeedback}
 ---
 
