@@ -384,7 +384,7 @@ Rispondi in formato JSON: {"text": "il tuo discorso qui"}`;
         log.debug("> La parola a " + debater.id);
 
         const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.
-Rispondi in formato JSON: {"text": "il tuo discorso qui"}`;
+IMPORTANTE: Rispondi ESATTAMENTE in questo formato JSON: {"text": "qui scrivi il tuo intervento"}`;
         const response = (await this.generate(
           debater,
           prompt,
@@ -411,6 +411,8 @@ Rispondi in formato JSON: {"text": "il tuo discorso qui"}`;
       }
       setTimeout(() => this.runTurn(), 1100);
     } catch (err) {
+      console.error("[DebateManager] Errore critico durante il turno:", err);
+      log.error(`Errore critico durante il turno: ${err}`);
       this.stopDebate();
     }
   }
