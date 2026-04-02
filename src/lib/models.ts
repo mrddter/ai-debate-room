@@ -14,11 +14,15 @@ const llm = {
   ollama: {
     lfm: { provider: "ollama", model: "lfm2.5-thinking" },
     gemini: { provider: "ollama", model: "gemini-3-flash-preview:cloud" },
+    glm: { provider: "ollama", model: "glm-5:cloud" },
+    nemotron: { provider: "ollama", model: "nemotron-3-super:cloud" },
+    gptoss: { provider: "ollama", model: "gpt-oss:120b-cloud" },
+    qwen: { provider: "ollama", model: "qwen3.5:397b-cloud" },
   },
 } as const;
 
 export const models = {
-  moderator: llm.magistral.medium,
-  judge: llm.mistral.medium,
-  debater: llm.mistral.medium,
+  moderator: llm.mistral.medium,
+  judge: llm.ollama.gemini,
+  debater: llm.ollama.gptoss,
 } as const;

@@ -190,7 +190,14 @@ Seleziona ALMENO 5 e MASSIMO 13 debaters che ritieni più adatti a sviscerare qu
 Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del debater) e "reason" (una breve spiegazione del perché lo hai scelto, max 20 parole).`;
 
     if (userFeedback) {
-      prompt += `\n\nAttenzione, l'utente ha fornito un feedback sulla tua precedente selezione. Modifica la selezione tenendo conto di questo feedback: "${userFeedback}". Rispondi sempre e solo con l'array JSON aggiornato.`;
+      prompt += `\n\nAttenzione, l'utente ha fornito un feedback sulla tua precedente selezione.
+
+---
+Modifica la selezione ESEGUENDO IN MODO PRECISO QUANTO QUI SPECIFICATO: 
+${userFeedback}
+---
+
+Rispondi sempre e solo con l'array JSON aggiornato.`;
     }
 
     console.log(
@@ -204,8 +211,9 @@ Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del 
         debaterSelectionSchema,
       );
 
-      const selection = (selectionResult as z.infer<typeof debaterSelectionSchema>)
-        .debaters;
+      const selection = (
+        selectionResult as z.infer<typeof debaterSelectionSchema>
+      ).debaters;
 
       console.log(
         "[DebateManager] Selezione parsata:",
@@ -456,7 +464,7 @@ DEVI includere una sezione "Giudizio Finale" in cui indichi:
 - Nelle metriche o nel testo, indica il numero totale di debaters coinvolti (${debaterAgents.length}).
 
 Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi USA il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
-      
+
       const result = (await this.generate(
         moderatorAgent,
         prompt,
@@ -474,7 +482,10 @@ Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inSho
       // Manual call to saveArtifactTool as safety measure if Agent didn't trigger it via schema generation
       // This ensures files are ALWAYS created even if tool_use wasn't explicitly triggered by the LLM
       try {
-        if (saveArtifactTool && typeof saveArtifactTool.execute === "function") {
+        if (
+          saveArtifactTool &&
+          typeof saveArtifactTool.execute === "function"
+        ) {
           await saveArtifactTool.execute({
             context: {
               summary: result.summary,
@@ -497,7 +508,6 @@ Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inSho
           saveErr,
         );
       }
-
     } catch (err) {
       console.error("[DebateManager] Errore in finishDebate:", err);
     }
