@@ -44,4 +44,4 @@ Il focus deve essere su:
 - uso dell’innovazione come **leva di accesso e differenziazione**
 - trasformazione del brand in un **hub di evoluzione tecnologica riconosciuto**
 
-In sintesi: progettare una strategia che faccia percepire Volcanic Minds non come un’azienda da contattare, ma come **un’opportunità a cui voler accedere**.
+In sintesi: progettare una strategia REALE e APPLICABILE in poco tempo e con basso effort che faccia percepire Volcanic Minds non come un’azienda da contattare, ma come **un’opportunità a cui voler accedere**.
