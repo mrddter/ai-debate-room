@@ -187,7 +187,7 @@ Ecco l'elenco di tutti i profili disponibili per partecipare:
 ${rosterList}
 
 Seleziona ALMENO 5 e MASSIMO 13 debaters che ritieni più adatti a sviscerare questo argomento da diverse angolazioni.
-Rispondi SOLO con un array JSON di oggetti, dove ogni oggetto ha "id" (l'id del debater) e "reason" (una breve spiegazione del perché lo hai scelto, max 20 parole).`;
+Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cui valore è un array di oggetti dove ogni oggetto ha "id" (l'id del debater) e "reason" (una breve spiegazione del perché lo hai scelto, max 20 parole).`;
 
     if (userFeedback) {
       prompt += `\n\nAttenzione, l'utente ha fornito un feedback sulla tua precedente selezione.
@@ -197,13 +197,13 @@ DI SEGUITO IL MESSAGGIO DELL'UTENTE CHE DEVI ANALIZZARE PER COMPRENDERE SE:
 - devi scegliere in modo autonomo un elenco di debaters (nel caso che ti abbia fornito un topic)
 - variare l'elenco con le modifiche richieste dall'utente (nel caso ti stia dando un elenco di numeri o istruzioni in merito)
 
-RICORDATI, puoi proporre lpelenco dei debaters ma è l'utente che sceglie.
-QUESTO, il prompt dell'utente da analizzare i nfunziona di quanto detto prima:
+RICORDATI, puoi proporre l'elenco dei debaters ma è l'utente che sceglie.
+QUESTO è il feedback dell'utente da analizzare:
 
 ${userFeedback}
 ---
 
-Rispondi sempre e solo con l'array JSON aggiornato.`;
+Rispondi sempre e solo in formato JSON con l'oggetto aggiornato che contiene la chiave "debaters".`;
     }
 
     console.log(
@@ -363,7 +363,8 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
       if (this.turnCount === 0) {
         log.debug("> Il dibattito ha inizio");
 
-        const prompt = `Il dibattito sta per iniziare. Tema: "${this.topic}". Introduci brevemente (max 100 parole) e dai la parola a: ${debaterAgents[0].name}.`;
+        const prompt = `Il dibattito sta per iniziare. Tema: "${this.topic}". Introduci brevemente (max 100 parole) e dai la parola a: ${debaterAgents[0].name}.
+Rispondi in formato JSON: {"text": "il tuo discorso qui"}`;
         const response = (await this.generate(
           moderatorAgent,
           prompt,
@@ -382,7 +383,8 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
         const debater = debaterAgents[this.currentDebaterIndex];
         log.debug("> La parola a " + debater.id);
 
-        const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.`;
+        const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.
+Rispondi in formato JSON: {"text": "il tuo discorso qui"}`;
         const response = (await this.generate(
           debater,
           prompt,
@@ -469,7 +471,8 @@ DEVI includere una sezione "Giudizio Finale" in cui indichi:
 - Quali giudici hanno votato cosa, riportando la loro reason e il loro score di maturityDegree. I dati dei voti dei giudici sono: ${JSON.stringify(this.lastJudgesOutputs)}
 - Nelle metriche o nel testo, indica il numero totale di debaters coinvolti (${debaterAgents.length}).
 
-Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi USA il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.`;
+Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi USA il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.
+Rispondi in formato JSON: {"summary": "sintesi estesa", "inShort": "sintesi breve"}`;
 
       const result = (await this.generate(
         moderatorAgent,

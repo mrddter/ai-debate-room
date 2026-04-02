@@ -9,3 +9,14 @@ Per ognuna delle 5 idee, presentami i dati con questa struttura:
 - Modello di prezzo (es. quanto costa l'abbonamento).
 - Perché è facile da replicare tecnicamente.
 - Un'idea per differenziarsi (es. "clonarlo ma rivolgerlo a una nicchia specifica").
+
+Usa SOLO i seguenti debaters:
+
+10- 👔 Bootstrapper Micro-SaaS
+12- 👾 Growth Hacker AI
+14- 📈 Analista Mercati di Nicchia
+15- 📈 Growth Strategic Analyst
+17- 📱 Social Media & Marketing Manager
+19- 🕵️ Lead Hunter & Guerrilla Marketing
+21- 🧠 Esperto Neuromarketing Saas
+24- 🚀 SaaS Strategist

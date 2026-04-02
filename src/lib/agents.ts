@@ -2,6 +2,7 @@ import { Agent } from "@mastra/core/agent";
 import { AgentConfig, debateConfig } from "./debateConfig";
 import { saveArtifactTool } from "../mcp/saveArtifactTool";
 import { createVolcanicAgent } from "./volcanicAI";
+import * as log from "@volcanicminds/tools/logger";
 
 export let moderatorAgent: Agent;
 export let debaterAgents: Agent[] = [];
