@@ -22,7 +22,7 @@ const llm = {
 } as const;
 
 export const models = {
-  moderator: llm.mistral.medium,
+  moderator: llm.mistral.small,
   judge: llm.ollama.gemini,
-  debater: llm.ollama.gptoss,
+  debater: llm.mistral.medium,
 } as const;

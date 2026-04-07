@@ -46,8 +46,13 @@ export async function createModel(config: ModelConfig): Promise<LanguageModel> {
     }
 
     case "ollama": {
-      const { createOllama } = await import("ollama-ai-provider");
-      const ollama = createOllama({ baseURL: baseUrl });
+      // Workaround: Use OpenAI provider for Ollama to avoid strict performance metrics validation (like eval_duration)
+      // which often fails on proxied Ollama endpoints.
+      const { createOpenAI } = await import("@ai-sdk/openai");
+      const ollama = createOpenAI({
+        baseURL: baseUrl?.replace("/api/chat", "/v1").replace(/\/$/, "") || "http://127.0.0.1:11434/v1",
+        apiKey: "ollama",
+      });
       return ollama(modelName) as any;
     }
 
