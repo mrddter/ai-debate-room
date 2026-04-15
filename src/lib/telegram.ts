@@ -74,7 +74,34 @@ export function setupTelegramBot() {
     activeChatId = null;
   });
 
-  manager.setOnSelectionRequired(async (selection, allAvailable) => {
+  manager.setOnPreferenceAsked(async (allAvailable) => {
+    if (!activeChatId) return;
+
+    // Sort all available debaters alphabetically by name
+    const sortedAll = [...allAvailable].sort((a, b) => a.name.localeCompare(b.name));
+
+    // Create a map to securely tie each debater to a specific, stable index (1-based)
+    const debaterIndexMap = new Map<string, number>();
+    sortedAll.forEach((d, i) => debaterIndexMap.set(d.id, i + 1));
+
+    let msg = `🤔 <b>Vuoi scegliere tu i debaters o preferisci che faccia io (il moderatore)?</b>\n\n`;
+    msg += `Se vuoi che faccia io, rispondi con "mod", "automatico" o "procedi".\n`;
+    msg += `Se vuoi scegliere tu, inviami semplicemente i numeri degli agenti che desideri (es. "1, 3, 4").\n\n`;
+
+    msg += `<b>Elenco di tutti i debaters:</b>\n`;
+    for (const d of sortedAll) {
+      msg += `${debaterIndexMap.get(d.id)}- ${d.name}\n`;
+    }
+
+    console.log("[Telegram] Invio messaggio richiesta preferenze.");
+    await bot.telegram
+      .sendMessage(activeChatId, msg, { parse_mode: "HTML" })
+      .catch((err) =>
+        console.error("[Telegram] Errore invio messaggio preferenze:", err),
+      );
+  });
+
+  manager.setOnSelectionRequired(async (selection, allAvailable, moderatorMessage) => {
     console.log(
       "[Telegram] onSelectionRequired chiamato, activeChatId:",
       activeChatId,
@@ -103,7 +130,7 @@ export function setupTelegramBot() {
     // Sort the proposed list alphabetically as well
     proposed.sort((a, b) => a.name.localeCompare(b.name));
 
-    let msg = `🤔 <b>Il moderatore ha proposto i seguenti partecipanti:</b>\n\n`;
+    let msg = moderatorMessage ? `🗣️ <b>${moderatorMessage}</b>\n\n` : `🤔 <b>Il moderatore ha proposto i seguenti partecipanti:</b>\n\n`;
     for (const p of proposed) {
       msg += `${p.index}- ${p.name}\n`;
     }
@@ -132,7 +159,7 @@ export function setupTelegramBot() {
   );
   bot.command("debate", async (ctx) => {
     console.log("[Telegram] Comando /debate ricevuto, chat.id:", ctx.chat.id);
-    if (manager.status === "RUNNING" || manager.status === "SELECTING_DEBATERS")
+    if (manager.status === "RUNNING" || manager.status === "SELECTING_DEBATERS" || manager.status === "ASKING_SELECTION_PREFERENCE")
       return ctx.reply(
         "Dibattito in corso o in fase di selezione. Usa /stop prima.",
       );
@@ -174,6 +201,11 @@ export function setupTelegramBot() {
       return ctx.reply(
         "Un dibattito è già in corso. Usa /stop se vuoi cambiarne il tema o /status per vederne l'avanzamento.",
       );
+    }
+
+    if (manager.status === "ASKING_SELECTION_PREFERENCE") {
+      await manager.handleSelectionPreferenceInput(ctx.message.text);
+      return;
     }
 
     if (manager.status === "SELECTING_DEBATERS") {
