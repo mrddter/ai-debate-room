@@ -88,25 +88,68 @@ export class DebateManager {
     prompt: string,
     schema?: z.ZodSchema<T>,
   ): Promise<T | string> {
-    console.log(
-      new Date().toISOString(),
-      `[DebateManager] Before Wait - Generating ${schema ? "structured " : ""}response from ${agent.name}...`,
-    );
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-    console.log(
-      new Date().toISOString(),
-      `[DebateManager] Generating response from ${agent.name}...`,
-    );
+    const maxRetries = 3;
+    let attempt = 0;
 
+    // Enforce prompt instructions when schema is provided
+    let finalPrompt = prompt;
     if (schema) {
-      const response = await agent.generate(prompt, {
-        output: schema,
-      });
-      return response.object as T;
+      finalPrompt += "\n\nIMPORTANT: You must return ONLY a valid JSON object. Do not include any other text or markdown formatting outside the JSON object.";
     }
 
-    const response = await agent.generate(prompt);
-    return response.text;
+    while (attempt < maxRetries) {
+      console.log(
+        new Date().toISOString(),
+        `[DebateManager] Before Wait - Generating ${schema ? "structured " : ""}response from ${agent.name}... (Attempt ${attempt + 1})`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      console.log(
+        new Date().toISOString(),
+        `[DebateManager] Generating response from ${agent.name}...`,
+      );
+
+      try {
+        if (schema) {
+          const response = await agent.generate(finalPrompt, {
+            output: schema,
+          });
+          return response.object as T;
+        }
+
+        const response = await agent.generate(finalPrompt);
+        return response.text;
+      } catch (err: any) {
+        if (schema && (err.name === 'NoObjectGeneratedError' || err.message?.includes('No object generated') || err.message?.includes('JSON') || err.message?.includes('parse'))) {
+          attempt++;
+          console.warn(`[DebateManager] Schema generation failed for ${agent.name} on attempt ${attempt}: ${err.message}`);
+          if (attempt >= maxRetries) {
+            console.warn(`[DebateManager] Max retries reached for structured generation. Attempting fallback text generation and manual parse.`);
+            try {
+              // Fallback to text generation
+              const response = await agent.generate(finalPrompt);
+              const text = response.text || "";
+
+              // Try to extract JSON from text
+              const jsonMatch = text.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                // Validate with schema
+                return schema.parse(parsed);
+              } else {
+                 throw new Error("No JSON found in fallback text response");
+              }
+            } catch (fallbackErr: any) {
+              console.error(`[DebateManager] Fallback parsing also failed: ${fallbackErr.message}`);
+              throw err; // Throw the original error or the new one, this will trigger the forcefully stop (stopDebate)
+            }
+          }
+        } else {
+          // If not a schema-related error or no schema, just throw
+          throw err;
+        }
+      }
+    }
+    throw new Error("Unexpected end of generate method");
   }
 
   private async loadAvailableDebaters(): Promise<AgentConfig[]> {
