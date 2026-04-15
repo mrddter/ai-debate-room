@@ -4,7 +4,7 @@ export const debaterSelectionSchema = z.object({
   debaters: z.array(
     z.object({
       id: z.string(),
-      reason: z.string().max(100),
+      reason: z.string(),
     }),
   ),
   moderatorMessage: z.string().optional(),
@@ -12,12 +12,12 @@ export const debaterSelectionSchema = z.object({
 
 export const routeNextSpeakerSchema = z.object({
   nextSpeakerId: z.string(),
-  transition: z.string().max(150),
+  transition: z.string(),
 });
 
 export const summarySchema = z.object({
   summary: z.string(),
-  inShort: z.string().max(200),
+  inShort: z.string(),
 });
 
 export const speechSchema = z.object({
