@@ -7,6 +7,7 @@ export const debaterSelectionSchema = z.object({
       reason: z.string().max(100),
     }),
   ),
+  moderatorMessage: z.string().optional(),
 });
 
 export const routeNextSpeakerSchema = z.object({

@@ -21,6 +21,7 @@ import * as log from "@volcanicminds/tools/logger";
 
 export type DebateStatus =
   | "IDLE"
+  | "ASKING_SELECTION_PREFERENCE"
   | "SELECTING_DEBATERS"
   | "RUNNING"
   | "FINISHED";
@@ -63,7 +64,9 @@ export class DebateManager {
   private onSelectionRequiredCallback?: (
     selection: DebaterSelection[],
     allAvailable: AgentConfig[],
+    moderatorMessage?: string,
   ) => void;
+  private onPreferenceAskedCallback?: (allAvailable: AgentConfig[]) => void;
 
   public setOnMessage(cb: (msg: string) => void) {
     this.onMessageCallback = cb;
@@ -72,9 +75,12 @@ export class DebateManager {
     this.onFinishedCallback = cb;
   }
   public setOnSelectionRequired(
-    cb: (selection: DebaterSelection[], allAvailable: AgentConfig[]) => void,
+    cb: (selection: DebaterSelection[], allAvailable: AgentConfig[], moderatorMessage?: string) => void,
   ) {
     this.onSelectionRequiredCallback = cb;
+  }
+  public setOnPreferenceAsked(cb: (allAvailable: AgentConfig[]) => void) {
+    this.onPreferenceAskedCallback = cb;
   }
 
   private async generate<T>(
@@ -136,8 +142,12 @@ export class DebateManager {
   public async startDebate(customTopic?: string) {
     activeDebate = this;
     console.log("[DebateManager] startDebate chiamato con topic:", customTopic);
-    if (this.status === "RUNNING" || this.status === "SELECTING_DEBATERS") {
-      console.log("[DebateManager] Debate già in corso, ritorno.");
+    if (
+      this.status === "RUNNING" ||
+      this.status === "SELECTING_DEBATERS" ||
+      this.status === "ASKING_SELECTION_PREFERENCE"
+    ) {
+      console.log("[DebateManager] Debate già in corso o in selezione, ritorno.");
       return;
     }
 
@@ -147,7 +157,7 @@ export class DebateManager {
       return;
     }
 
-    this.status = "SELECTING_DEBATERS";
+    this.status = "ASKING_SELECTION_PREFERENCE";
     this.topic = customTopic || debateConfig.defaultTopic;
     this.turnCount = 0;
     this.history = [];
@@ -158,19 +168,34 @@ export class DebateManager {
     this.currentDebaterIndex = 0;
     this.currentSelection = [];
 
-    this.broadcast(
-      `⏳ Valutazione dell'argomento e selezione dei partecipanti ottimali...`,
-    );
-
     this.allAvailableDebaters = await this.loadAvailableDebaters();
     console.log(
       "[DebateManager] Debaters caricati:",
       this.allAvailableDebaters.length,
     );
-    await this.proposeDebaters();
+
+    if (this.onPreferenceAskedCallback) {
+      this.onPreferenceAskedCallback(this.allAvailableDebaters);
+    }
   }
 
-  private async proposeDebaters(userFeedback?: string) {
+  public async handleSelectionPreferenceInput(input: string) {
+    if (this.status !== "ASKING_SELECTION_PREFERENCE") return;
+
+    const lowerInput = input.trim().toLowerCase();
+    const isAuto = ["mod", "automatico", "procedi", "ok"].includes(lowerInput) || lowerInput.length > 50;
+
+    this.status = "SELECTING_DEBATERS";
+    if (isAuto) {
+      this.broadcast(`⏳ Valutazione dell'argomento e selezione dei partecipanti ottimali da parte del moderatore...`);
+      await this.proposeDebaters();
+    } else {
+      this.broadcast(`⏳ Acquisizione della tua selezione e valutazione da parte del moderatore...`);
+      await this.proposeDebaters(input, true);
+    }
+  }
+
+  private async proposeDebaters(userFeedback?: string, isDirectUserSelection: boolean = false) {
     console.log(
       "[DebateManager] proposeDebaters chiamato con feedback:",
       userFeedback,
@@ -186,24 +211,34 @@ export class DebateManager {
 Ecco l'elenco di tutti i profili disponibili per partecipare:
 ${rosterList}
 
-Seleziona ALMENO 5 e MASSIMO 13 debaters che ritieni più adatti a sviscerare questo argomento da diverse angolazioni.
-Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cui valore è un array di oggetti dove ogni oggetto ha "id" (l'id del debater) e "reason" (una breve spiegazione del perché lo hai scelto, max 20 parole).`;
+REGOLE PER LA SELEZIONE (MOLTO IMPORTANTE):
+1. Assicurati che la discussione sia di valore e proceda in modo incrementale.
+2. Se il topic riguarda una nuova idea, un nuovo business o un tema ignoto, coinvolgi SEMPRE in prima battuta le figure fondamentali per posizionare e definire l'idea (es. Founder, Esperto di Mercato, Business Analyst).
+3. NON coinvolgere prematuramente figure di freno (es. Avvocato, esperto GDPR, Legale) se l'idea non è ancora solida o matura, a meno che non siano strettamente pertinenti al core del topic. L'obiettivo è creare prima un quadro molto solido.
+4. L'array "debaters" DEVE contenere ALMENO 5 e MASSIMO 13 debaters che ritieni più adatti.
+`;
 
-    if (userFeedback) {
-      prompt += `\n\nAttenzione, l'utente ha fornito un feedback sulla tua precedente selezione.
+    if (isDirectUserSelection && userFeedback) {
+      prompt += `\nL'UTENTE HA FORNITO IL SUO ELENCO DI PREFERENZE:
+"${userFeedback}"
 
----
-DI SEGUITO IL MESSAGGIO DELL'UTENTE CHE DEVI ANALIZZARE PER COMPRENDERE SE:
-- devi scegliere in modo autonomo un elenco di debaters (nel caso che ti abbia fornito un topic)
-- variare l'elenco con le modifiche richieste dall'utente (nel caso ti stia dando un elenco di numeri o istruzioni in merito)
+ATTENZIONE: DEVI accettare incondizionatamente le scelte dell'utente includendole tutte nel campo "debaters".
+Tuttavia, puoi valutare questa lista ed emettere dei suggerimenti nel campo opzionale "moderatorMessage". Ad esempio puoi dire:
+"Ho ricevuto il tuo elenco e l'ho impostato come richiesto. Visto il topic, ti consiglio di includere anche [Nome] e di escludere [Nome] per [motivo]. Che ne pensi? Vuoi che proceda così o vuoi applicare le mie modifiche?"
+Se l'elenco dell'utente va benissimo così, puoi scrivere semplicemente: "L'elenco proposto mi sembra ottimo e copre tutti gli aspetti essenziali. Vuoi che proceda e dia il via al dibattito?"
 
-RICORDATI, puoi proporre l'elenco dei debaters ma è l'utente che sceglie.
-QUESTO è il feedback dell'utente da analizzare:
+Rispondi in formato JSON con l'oggetto contenente:
+- "debaters": la lista degli agenti scelti (che DEVE includere quelli chiesti dall'utente). Ogni oggetto ha "id" e "reason".
+- "moderatorMessage": la tua risposta conversazionale (in italiano) rivolta all'utente, dove gli comunichi eventuali suggerimenti e gli chiedi conferma.`;
+    } else if (userFeedback) {
+      prompt += `\nL'UTENTE HA FORNITO UN FEEDBACK SULLA TUA PRECEDENTE SELEZIONE:
+"${userFeedback}"
 
-${userFeedback}
----
-
-Rispondi sempre e solo in formato JSON con l'oggetto aggiornato che contiene la chiave "debaters".`;
+Analizza il messaggio dell'utente. Devi variare l'elenco con le modifiche richieste dall'utente (es. aggiungere o rimuovere specifici numeri).
+Rispondi in formato JSON con l'oggetto aggiornato che contiene la chiave "debaters" (ognuno con "id" e "reason"). Se lo ritieni opportuno, puoi compilare il campo "moderatorMessage" per commentare le variazioni apportate.`;
+    } else {
+      prompt += `\nSeleziona gli agenti migliori per iniziare la mappa mentale e la discussione attorno al topic, tenendo conto delle regole sopra.
+Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cui valore è un array di oggetti dove ogni oggetto ha "id" e "reason" (una breve spiegazione del perché lo hai scelto, max 20 parole).`;
     }
 
     console.log(
@@ -217,9 +252,8 @@ Rispondi sempre e solo in formato JSON con l'oggetto aggiornato che contiene la 
         debaterSelectionSchema,
       );
 
-      const selection = (
-        selectionResult as z.infer<typeof debaterSelectionSchema>
-      ).debaters;
+      const parsedResult = selectionResult as z.infer<typeof debaterSelectionSchema>;
+      const selection = parsedResult.debaters;
 
       console.log(
         "[DebateManager] Selezione parsata:",
@@ -233,6 +267,7 @@ Rispondi sempre e solo in formato JSON con l'oggetto aggiornato che contiene la 
         this.onSelectionRequiredCallback(
           this.currentSelection,
           this.allAvailableDebaters,
+          parsedResult.moderatorMessage
         );
       }
     } catch (err) {
@@ -312,6 +347,9 @@ Ecco i dibattitori disponibili al tavolo:
 ${roster}
 
 Basandoti sul contenuto dell'ultimo intervento e sul flusso della discussione, decidi chi deve parlare dopo.
+REGOLE DI ROUTING:
+- Sii consapevole della fase del dibattito in cui vi trovate. Se siete alle prime battute di un nuovo business o idea, garantisci che la discussione sia incrementale di valore (prima i bisogni, i problemi risolti, il posizionamento, la fattibilità base).
+- NON far intervenire avvocati o legali se il quadro del prodotto non è ancora solido, a meno che il legale non sia interpellato per sbloccare uno snodo cruciale già emerso.
 Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition": "breve commento di transizione max 30 parole"}`;
 
     try {
@@ -384,6 +422,7 @@ Rispondi in formato JSON: {"text": "il tuo discorso qui"}`;
         log.debug("> La parola a " + debater.id);
 
         const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.
+IMPORTANTE PER LA CREAZIONE DI VALORE: Cerca di costruire sul discorso precedente. Se l'idea o il quadro del problema è ancora nelle fasi iniziali, abbi cura di delinearlo in modo solido e incrementale senza porre freni inutili o pretese premature che esulano dalla fase di validazione/scoperta in corso.
 IMPORTANTE: Rispondi ESATTAMENTE in questo formato JSON: {"text": "qui scrivi il tuo intervento"}`;
         const response = (await this.generate(
           debater,
@@ -468,13 +507,17 @@ Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "
       const prompt = `Dibattito terminato${interrupted ? " anticipatamente (interrotto)" : ""}. Cronologia:\n${this.formatHistoryForPrompt()}\n
 Fai un sunto neutrale della discussione fin qui svoltasi.
 
-DEVI includere una sezione "Giudizio Finale" in cui indichi:
-- Se il dibattito si è concluso per il raggiungimento massimo dei turns (${this.maxTurns}) oppure per il voto dei giudici.
+DEVI includere una sezione "Giudizio Finale" nel campo "summary" in cui indichi:
+- Se il dibattito si è concluso per il raggiungimento massimo dei turns (${this.maxTurns}) oppure per il voto dei giudici (o interruzione utente).
 - Quali giudici hanno votato cosa, riportando la loro reason e il loro score di maturityDegree. I dati dei voti dei giudici sono: ${JSON.stringify(this.lastJudgesOutputs)}
 - Nelle metriche o nel testo, indica il numero totale di debaters coinvolti (${debaterAgents.length}).
 
-Fornisci anche una sintesi ultraconcisa di massimo 1-2 frasi da passare a "inShort". Poi USA il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort". Massimo 400 parole per la sintesi estesa.
-Rispondi in formato JSON: {"summary": "sintesi estesa", "inShort": "sintesi breve"}`;
+IL CAMPO "inShort" DEVE invece essere estremamente diretto al punto del dibattito. Deve risultare una sintesi umana, di alto valore, schietta e professionale, senza frasi fatte o sterili tipo "Il dibattito si è concluso...". Deve comunicare *l'esito reale*, la *decisione o realtà* emersa e l'utilità di ciò che è stato discusso, max 3 frasi.
+Esempio "inShort" di valore: "L'idea XYZ ha un posizionamento di mercato sensato, ma i costi di acquisizione tramite i canali tradizionali (5K€) non sono sostenibili. La via operativa validata è il pivot su Growth Autopsy a costo zero, sfruttando la trasparenza per generare lead."
+Non usare mai resoconti finti senza utilità.
+
+Poi USA il tool "saveArtifact" per salvare l'artefatto con "summary" e "inShort".
+Rispondi in formato JSON: {"summary": "sintesi estesa (max 400 parole)", "inShort": "la sintesi schietta e di alto valore per la chat (max 200 caratteri)"}`;
 
       const result = (await this.generate(
         moderatorAgent,
@@ -482,13 +525,17 @@ Rispondi in formato JSON: {"summary": "sintesi estesa", "inShort": "sintesi brev
         summarySchema,
       )) as z.infer<typeof summarySchema>;
 
-      const content = result.summary || "";
+      const fullSummary = result.summary || "";
+      const inShort = result.inShort || "";
+
       this.history.push({
         role: "assistant",
-        content,
+        content: fullSummary,
         name: moderatorAgent.name,
       });
-      this.broadcast(`**[${moderatorAgent.name} (Sunto Finale)]**\n${content}`);
+
+      // We ONLY broadcast the straight-to-the-point 'inShort' to the Telegram chat
+      this.broadcast(`**[${moderatorAgent.name} (Sunto Finale)]**\n\n${inShort}`);
 
       // Manual call to saveArtifactTool as safety measure if Agent didn't trigger it via schema generation
       // This ensures files are ALWAYS created even if tool_use wasn't explicitly triggered by the LLM
