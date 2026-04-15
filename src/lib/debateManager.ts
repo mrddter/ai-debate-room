@@ -200,10 +200,14 @@ export class DebateManager {
       "[DebateManager] proposeDebaters chiamato con feedback:",
       userFeedback,
     );
-    const rosterList = this.allAvailableDebaters
+
+    // Sort available debaters exactly as in telegram.ts to match user's visual indices
+    const sortedAvailable = [...this.allAvailableDebaters].sort((a, b) => a.name.localeCompare(b.name));
+
+    const rosterList = sortedAvailable
       .map(
-        (d) =>
-          `- ID: ${d.id} | Name: ${d.name} | Skills: ${d.skills?.join(", ") || ""} | WhenToUse: ${d.whenToUse || ""} | Descrizione: ${d.description ? d.description + " - " : ""}${d.instructions}`,
+        (d, i) =>
+          `- INDICE: ${i + 1} | ID: ${d.id} | Name: ${d.name} | Skills: ${d.skills?.join(", ") || ""} | WhenToUse: ${d.whenToUse || ""} | Descrizione: ${d.description ? d.description + " - " : ""}${d.instructions}`,
       )
       .join("\n\n");
 
@@ -219,22 +223,22 @@ REGOLE PER LA SELEZIONE (MOLTO IMPORTANTE):
 `;
 
     if (isDirectUserSelection && userFeedback) {
-      prompt += `\nL'UTENTE HA FORNITO IL SUO ELENCO DI PREFERENZE:
+      prompt += `\nL'UTENTE HA FORNITO IL SUO ELENCO DI PREFERENZE IN NUMERI (che corrispondono agli "INDICE" sopra):
 "${userFeedback}"
 
-ATTENZIONE: DEVI accettare incondizionatamente le scelte dell'utente includendole tutte nel campo "debaters".
-Tuttavia, puoi valutare questa lista ed emettere dei suggerimenti nel campo opzionale "moderatorMessage". Ad esempio puoi dire:
+ATTENZIONE: DEVI estrarre gli "INDICE" forniti dall'utente e trovare gli "ID" corrispondenti nell'elenco. DEVI accettare incondizionatamente le scelte dell'utente includendo TUTTI (e solo) i relativi "ID" da lui scelti nel campo "debaters".
+Tuttavia, se lo ritieni necessario, puoi valutare questa lista ed emettere dei suggerimenti nel campo opzionale "moderatorMessage". Ad esempio puoi dire:
 "Ho ricevuto il tuo elenco e l'ho impostato come richiesto. Visto il topic, ti consiglio di includere anche [Nome] e di escludere [Nome] per [motivo]. Che ne pensi? Vuoi che proceda così o vuoi applicare le mie modifiche?"
 Se l'elenco dell'utente va benissimo così, puoi scrivere semplicemente: "L'elenco proposto mi sembra ottimo e copre tutti gli aspetti essenziali. Vuoi che proceda e dia il via al dibattito?"
 
 Rispondi in formato JSON con l'oggetto contenente:
-- "debaters": la lista degli agenti scelti (che DEVE includere quelli chiesti dall'utente). Ogni oggetto ha "id" e "reason".
+- "debaters": la lista degli agenti scelti (che DEVE includere ESATTAMENTE quelli chiesti dall'utente). Ogni oggetto ha "id" e "reason".
 - "moderatorMessage": la tua risposta conversazionale (in italiano) rivolta all'utente, dove gli comunichi eventuali suggerimenti e gli chiedi conferma.`;
     } else if (userFeedback) {
-      prompt += `\nL'UTENTE HA FORNITO UN FEEDBACK SULLA TUA PRECEDENTE SELEZIONE:
+      prompt += `\nL'UTENTE HA FORNITO UN FEEDBACK SULLA TUA PRECEDENTE SELEZIONE (i numeri forniti dall'utente corrispondono agli "INDICE" sopra):
 "${userFeedback}"
 
-Analizza il messaggio dell'utente. Devi variare l'elenco con le modifiche richieste dall'utente (es. aggiungere o rimuovere specifici numeri).
+Analizza il messaggio dell'utente. Devi variare l'elenco con le modifiche richieste dall'utente convertendo i numeri negli ID corrispondenti.
 Rispondi in formato JSON con l'oggetto aggiornato che contiene la chiave "debaters" (ognuno con "id" e "reason"). Se lo ritieni opportuno, puoi compilare il campo "moderatorMessage" per commentare le variazioni apportate.`;
     } else {
       prompt += `\nSeleziona gli agenti migliori per iniziare la mappa mentale e la discussione attorno al topic, tenendo conto delle regole sopra.
