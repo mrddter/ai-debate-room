@@ -36,6 +36,16 @@ export interface DebaterSelection {
   reason: string;
 }
 
+export interface NewDebater {
+  id: string;
+  name: string;
+  reason: string;
+  skills: string[];
+  whenToUse: string;
+  description: string;
+  instructions: string;
+}
+
 export let activeDebate: DebateManager | null = null;
 
 export class DebateManager {
@@ -58,6 +68,7 @@ export class DebateManager {
   private currentDebaterIndex = 0;
   public allAvailableDebaters: AgentConfig[] = [];
   public currentSelection: DebaterSelection[] = [];
+  public newDebatersProposed: NewDebater[] = [];
 
   private onMessageCallback?: (msg: string) => void;
   private onFinishedCallback?: () => void;
@@ -226,10 +237,14 @@ export class DebateManager {
     if (this.status !== "ASKING_SELECTION_PREFERENCE") return;
 
     const lowerInput = input.trim().toLowerCase();
+    const isSmart = lowerInput === "smart";
     const isAuto = ["mod", "automatico", "procedi", "ok"].includes(lowerInput) || lowerInput.length > 50;
 
     this.status = "SELECTING_DEBATERS";
-    if (isAuto) {
+    if (isSmart) {
+      this.broadcast(`🧠 Analisi smart dell'argomento... il moderatore proporrà o creerà i partecipanti ideali al volo.`);
+      await this.proposeDebaters(undefined, false, true);
+    } else if (isAuto) {
       this.broadcast(`⏳ Valutazione dell'argomento e selezione dei partecipanti ottimali da parte del moderatore...`);
       await this.proposeDebaters();
     } else {
@@ -238,7 +253,7 @@ export class DebateManager {
     }
   }
 
-  private async proposeDebaters(userFeedback?: string, isDirectUserSelection: boolean = false) {
+  private async proposeDebaters(userFeedback?: string, isDirectUserSelection: boolean = false, isSmartSelection: boolean = false) {
     console.log(
       "[DebateManager] proposeDebaters chiamato con feedback:",
       userFeedback,
@@ -265,7 +280,17 @@ REGOLE PER LA SELEZIONE (MOLTO IMPORTANTE):
 4. L'array "debaters" DEVE contenere ALMENO 5 e MASSIMO 13 debaters che ritieni più adatti.
 `;
 
-    if (isDirectUserSelection && userFeedback) {
+    if (isSmartSelection) {
+      prompt += `\nL'UTENTE HA RICHIESTO LA MODALITÀ SMART.
+Devi analizzare in profondità il topic e decidere di quali figure necessita il tavolo.
+Cerca i candidati ideali tra i profili disponibili sopra e includi i loro "id" in "debaters".
+TUTTAVIA, se ti accorgi che mancano figure fondamentali o necessiti di ruoli specifici non presenti, DEVI crearli da zero.
+Per i nuovi debaters, popolali nell'array "newDebaters", fornendo "id" (formato snake_case univoco, ad es. "esperto_blockchain"), "name", "reason", "skills", "whenToUse", "description" e "instructions" (un prompt comportamentale dettagliato per la personalità dell'agente).
+Rispondi in formato JSON con:
+- "debaters": array dei debaters scelti dall'elenco.
+- "newDebaters": array dei debaters creati al volo (può essere vuoto se non necessari).
+- "moderatorMessage": spiega brevemente in italiano le tue scelte e presenta all'utente i nuovi profili proposti.`;
+    } else if (isDirectUserSelection && userFeedback) {
       prompt += `\nL'UTENTE HA FORNITO IL SUO ELENCO DI PREFERENZE IN NUMERI (che corrispondono agli "INDICE" sopra):
 "${userFeedback}"
 
@@ -301,19 +326,50 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
 
       const parsedResult = selectionResult as z.infer<typeof debaterSelectionSchema>;
       const selection = parsedResult.debaters;
+      const newDebaters = parsedResult.newDebaters || [];
 
       console.log(
         "[DebateManager] Selezione parsata:",
         selection.length,
-        "debaters",
+        "debaters,",
+        newDebaters.length,
+        "new debaters",
       );
       this.currentSelection = selection;
+      this.newDebatersProposed = newDebaters;
+
+      // Add temporary references of newDebaters to selection so they can be shown to the user
+      // User approval of new debaters will trigger physical file creation.
+      const allCombinedSelection = [
+        ...selection,
+        ...newDebaters.map((nd) => ({ id: nd.id, reason: nd.reason }))
+      ];
+
+      // Add the proposed new debaters to a temporary pool so the telegram bot can show their names
+      const allAvailableWithNew: AgentConfig[] = [
+        ...this.allAvailableDebaters,
+        ...newDebaters.map(nd => ({
+          id: nd.id,
+          name: nd.name,
+          role: "debater" as const,
+          model: {
+            provider: "OPEN_AI" as "OPEN_AI",
+            name: "gpt-4o-mini",
+            toolChoice: "auto",
+          } as any, // bypassing strict ModelConfig check since it requires specific mastra structures sometimes
+          enabled: true,
+          skills: nd.skills,
+          whenToUse: nd.whenToUse,
+          description: nd.description,
+          instructions: nd.instructions
+        }))
+      ];
 
       if (this.onSelectionRequiredCallback) {
         console.log("[DebateManager] Chiamo onSelectionRequiredCallback");
         this.onSelectionRequiredCallback(
-          this.currentSelection,
-          this.allAvailableDebaters,
+          allCombinedSelection,
+          allAvailableWithNew,
           parsedResult.moderatorMessage
         );
       }
@@ -335,6 +391,70 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
       input.trim().toLowerCase() === "ok"
     ) {
       this.broadcast(`✅ Selezione confermata. Inizializzazione in corso...`);
+
+      // Write proposed new debaters to physical files if any
+      if (this.newDebatersProposed.length > 0) {
+        this.broadcast(`⏳ Salvataggio dei nuovi debaters generati su disco...`);
+        const debatersDir = path.join(__dirname, "..", "debaters");
+        for (const nd of this.newDebatersProposed) {
+          // Sanitize ID to prevent path traversal or invalid filenames
+          const safeId = nd.id.replace(/[^a-zA-Z0-9_]/g, '');
+          if (!safeId) continue;
+
+          const filePath = path.join(debatersDir, `${safeId}.ts`);
+          const fileContent = `import { AgentConfig } from "../lib/debateConfig";
+
+const config: AgentConfig = {
+  id: ${JSON.stringify(safeId)},
+  name: ${JSON.stringify(nd.name)},
+  role: "debater",
+  model: {
+    provider: "OPEN_AI",
+    name: "gpt-4o-mini",
+  },
+  enabled: true,
+  skills: ${JSON.stringify(nd.skills, null, 2)},
+  whenToUse: ${JSON.stringify(nd.whenToUse)},
+  description: ${JSON.stringify(nd.description)},
+  instructions: ${JSON.stringify(nd.instructions)}
+};
+
+export default config;
+`;
+          try {
+            fs.writeFileSync(filePath, fileContent, "utf8");
+            console.log(`[DebateManager] Salvato nuovo debater: ${filePath}`);
+
+            // Add to allAvailableDebaters so it can be found below
+            this.allAvailableDebaters.push({
+              id: nd.id,
+              name: nd.name,
+              role: "debater" as const,
+              model: {
+                provider: "OPEN_AI" as "OPEN_AI",
+                name: "gpt-4o-mini",
+                toolChoice: "auto",
+              } as any,
+              enabled: true,
+              skills: nd.skills,
+              whenToUse: nd.whenToUse,
+              description: nd.description,
+              instructions: nd.instructions
+            });
+
+            // Add to currentSelection so it gets included
+            this.currentSelection.push({
+              id: nd.id,
+              reason: nd.reason
+            });
+          } catch (err) {
+            console.error(`[DebateManager] Errore salvataggio nuovo debater ${nd.id}:`, err);
+          }
+        }
+
+        // Reset the proposed list
+        this.newDebatersProposed = [];
+      }
 
       const selectedConfigs = this.currentSelection
         .map((sel) => this.allAvailableDebaters.find((d) => d.id === sel.id))

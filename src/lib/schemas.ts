@@ -7,6 +7,17 @@ export const debaterSelectionSchema = z.object({
       reason: z.string(),
     }),
   ),
+  newDebaters: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      reason: z.string(),
+      skills: z.array(z.string()),
+      whenToUse: z.string(),
+      description: z.string(),
+      instructions: z.string(),
+    })
+  ).optional(),
   moderatorMessage: z.string().optional(),
 });
 
