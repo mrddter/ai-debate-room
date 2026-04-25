@@ -86,6 +86,7 @@ export function setupTelegramBot() {
 
     let msg = `🤔 <b>Vuoi scegliere tu i debaters o preferisci che faccia io (il moderatore)?</b>\n\n`;
     msg += `Se vuoi che faccia io, rispondi con "mod", "automatico" o "procedi".\n`;
+    msg += `Se vuoi che proponga debaters generati ad hoc per il tuo caso, rispondi con "smart".\n`;
     msg += `Se vuoi scegliere tu, inviami semplicemente i numeri degli agenti che desideri (es. "1, 3, 4").\n\n`;
 
     msg += `<b>Elenco di tutti i debaters:</b>\n`;
