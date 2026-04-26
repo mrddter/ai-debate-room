@@ -156,7 +156,7 @@ export function setupTelegramBot() {
   });
 
   bot.command(["start", "help"], (ctx) =>
-    ctx.reply("Benvenuto! Usa /debate [argomento], /stop o /status."),
+    ctx.reply("Benvenuto! Usa /debate [argomento], /stop, /status o /whiteboard."),
   );
   bot.command("debate", async (ctx) => {
     console.log("[Telegram] Comando /debate ricevuto, chat.id:", ctx.chat.id);
@@ -191,6 +191,13 @@ export function setupTelegramBot() {
     ctx.reply(
       `Stato: ${manager.status}\nArgomento: ${manager.topic}\nTurni: ${manager.turnCount}`,
     );
+  });
+  bot.command("whiteboard", (ctx) => {
+    if (manager.status === "IDLE") {
+      return ctx.reply("Nessun dibattito in corso.");
+    }
+    const safeText = escapeMarkdown(manager.whiteboard);
+    ctx.reply(`*Lavagna / Stato dell'Arte:*\n\n${safeText}`, { parse_mode: "Markdown" });
   });
 
   // Gestore messaggi di testo semplici (non comandi)
