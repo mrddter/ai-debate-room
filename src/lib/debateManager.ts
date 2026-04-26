@@ -9,6 +9,8 @@ import {
   speechSchema,
   judgeOutputSchema,
   summarySchema,
+  moderatorAnalysisSchema,
+  raiseHandSchema,
 } from "./schemas";
 import {
   moderatorAgent,
@@ -36,6 +38,16 @@ export interface DebaterSelection {
   reason: string;
 }
 
+export interface NewDebater {
+  id: string;
+  name: string;
+  reason: string;
+  skills: string[];
+  whenToUse: string;
+  description: string;
+  instructions: string;
+}
+
 export let activeDebate: DebateManager | null = null;
 
 export class DebateManager {
@@ -49,6 +61,7 @@ export class DebateManager {
   public endTime: Date | null = null;
   public judgesAgree: number = 0;
   public judgesDisagree: number = 0;
+  public whiteboard: string = "";
   public lastJudgesOutputs: {
     id: string;
     name: string;
@@ -58,6 +71,7 @@ export class DebateManager {
   private currentDebaterIndex = 0;
   public allAvailableDebaters: AgentConfig[] = [];
   public currentSelection: DebaterSelection[] = [];
+  public newDebatersProposed: NewDebater[] = [];
 
   private onMessageCallback?: (msg: string) => void;
   private onFinishedCallback?: () => void;
@@ -208,6 +222,7 @@ export class DebateManager {
     this.endTime = null;
     this.judgesAgree = 0;
     this.judgesDisagree = 0;
+    this.whiteboard = "Lavagna vuota. Nessun dato consolidato al momento.";
     this.currentDebaterIndex = 0;
     this.currentSelection = [];
 
@@ -226,10 +241,14 @@ export class DebateManager {
     if (this.status !== "ASKING_SELECTION_PREFERENCE") return;
 
     const lowerInput = input.trim().toLowerCase();
+    const isSmart = lowerInput === "smart";
     const isAuto = ["mod", "automatico", "procedi", "ok"].includes(lowerInput) || lowerInput.length > 50;
 
     this.status = "SELECTING_DEBATERS";
-    if (isAuto) {
+    if (isSmart) {
+      this.broadcast(`🧠 Analisi smart dell'argomento... il moderatore proporrà o creerà i partecipanti ideali al volo.`);
+      await this.proposeDebaters(undefined, false, true);
+    } else if (isAuto) {
       this.broadcast(`⏳ Valutazione dell'argomento e selezione dei partecipanti ottimali da parte del moderatore...`);
       await this.proposeDebaters();
     } else {
@@ -238,7 +257,7 @@ export class DebateManager {
     }
   }
 
-  private async proposeDebaters(userFeedback?: string, isDirectUserSelection: boolean = false) {
+  private async proposeDebaters(userFeedback?: string, isDirectUserSelection: boolean = false, isSmartSelection: boolean = false) {
     console.log(
       "[DebateManager] proposeDebaters chiamato con feedback:",
       userFeedback,
@@ -265,7 +284,17 @@ REGOLE PER LA SELEZIONE (MOLTO IMPORTANTE):
 4. L'array "debaters" DEVE contenere ALMENO 5 e MASSIMO 13 debaters che ritieni più adatti.
 `;
 
-    if (isDirectUserSelection && userFeedback) {
+    if (isSmartSelection) {
+      prompt += `\nL'UTENTE HA RICHIESTO LA MODALITÀ SMART.
+Devi analizzare in profondità il topic e decidere di quali figure necessita il tavolo.
+Cerca i candidati ideali tra i profili disponibili sopra e includi i loro "id" in "debaters".
+TUTTAVIA, se ti accorgi che mancano figure fondamentali o necessiti di ruoli specifici non presenti, DEVI crearli da zero.
+Per i nuovi debaters, popolali nell'array "newDebaters", fornendo "id" (formato snake_case univoco, ad es. "esperto_blockchain"), "name", "reason", "skills", "whenToUse", "description" e "instructions" (un prompt comportamentale dettagliato per la personalità dell'agente).
+Rispondi in formato JSON con:
+- "debaters": array dei debaters scelti dall'elenco.
+- "newDebaters": array dei debaters creati al volo (può essere vuoto se non necessari).
+- "moderatorMessage": spiega brevemente in italiano le tue scelte e presenta all'utente i nuovi profili proposti.`;
+    } else if (isDirectUserSelection && userFeedback) {
       prompt += `\nL'UTENTE HA FORNITO IL SUO ELENCO DI PREFERENZE IN NUMERI (che corrispondono agli "INDICE" sopra):
 "${userFeedback}"
 
@@ -301,19 +330,50 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
 
       const parsedResult = selectionResult as z.infer<typeof debaterSelectionSchema>;
       const selection = parsedResult.debaters;
+      const newDebaters = parsedResult.newDebaters || [];
 
       console.log(
         "[DebateManager] Selezione parsata:",
         selection.length,
-        "debaters",
+        "debaters,",
+        newDebaters.length,
+        "new debaters",
       );
       this.currentSelection = selection;
+      this.newDebatersProposed = newDebaters;
+
+      // Add temporary references of newDebaters to selection so they can be shown to the user
+      // User approval of new debaters will trigger physical file creation.
+      const allCombinedSelection = [
+        ...selection,
+        ...newDebaters.map((nd) => ({ id: nd.id, reason: nd.reason }))
+      ];
+
+      // Add the proposed new debaters to a temporary pool so the telegram bot can show their names
+      const allAvailableWithNew: AgentConfig[] = [
+        ...this.allAvailableDebaters,
+        ...newDebaters.map(nd => ({
+          id: nd.id,
+          name: nd.name,
+          role: "debater" as const,
+          model: {
+            provider: "OPEN_AI" as "OPEN_AI",
+            name: "gpt-4o-mini",
+            toolChoice: "auto",
+          } as any, // bypassing strict ModelConfig check since it requires specific mastra structures sometimes
+          enabled: true,
+          skills: nd.skills,
+          whenToUse: nd.whenToUse,
+          description: nd.description,
+          instructions: nd.instructions
+        }))
+      ];
 
       if (this.onSelectionRequiredCallback) {
         console.log("[DebateManager] Chiamo onSelectionRequiredCallback");
         this.onSelectionRequiredCallback(
-          this.currentSelection,
-          this.allAvailableDebaters,
+          allCombinedSelection,
+          allAvailableWithNew,
           parsedResult.moderatorMessage
         );
       }
@@ -335,6 +395,70 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
       input.trim().toLowerCase() === "ok"
     ) {
       this.broadcast(`✅ Selezione confermata. Inizializzazione in corso...`);
+
+      // Write proposed new debaters to physical files if any
+      if (this.newDebatersProposed.length > 0) {
+        this.broadcast(`⏳ Salvataggio dei nuovi debaters generati su disco...`);
+        const debatersDir = path.join(__dirname, "..", "debaters");
+        for (const nd of this.newDebatersProposed) {
+          // Sanitize ID to prevent path traversal or invalid filenames
+          const safeId = nd.id.replace(/[^a-zA-Z0-9_]/g, '');
+          if (!safeId) continue;
+
+          const filePath = path.join(debatersDir, `${safeId}.ts`);
+          const fileContent = `import { AgentConfig } from "../lib/debateConfig";
+
+const config: AgentConfig = {
+  id: ${JSON.stringify(safeId)},
+  name: ${JSON.stringify(nd.name)},
+  role: "debater",
+  model: {
+    provider: "OPEN_AI",
+    name: "gpt-4o-mini",
+  },
+  enabled: true,
+  skills: ${JSON.stringify(nd.skills, null, 2)},
+  whenToUse: ${JSON.stringify(nd.whenToUse)},
+  description: ${JSON.stringify(nd.description)},
+  instructions: ${JSON.stringify(nd.instructions)}
+};
+
+export default config;
+`;
+          try {
+            fs.writeFileSync(filePath, fileContent, "utf8");
+            console.log(`[DebateManager] Salvato nuovo debater: ${filePath}`);
+
+            // Add to allAvailableDebaters so it can be found below
+            this.allAvailableDebaters.push({
+              id: nd.id,
+              name: nd.name,
+              role: "debater" as const,
+              model: {
+                provider: "OPEN_AI" as "OPEN_AI",
+                name: "gpt-4o-mini",
+                toolChoice: "auto",
+              } as any,
+              enabled: true,
+              skills: nd.skills,
+              whenToUse: nd.whenToUse,
+              description: nd.description,
+              instructions: nd.instructions
+            });
+
+            // Add to currentSelection so it gets included
+            this.currentSelection.push({
+              id: nd.id,
+              reason: nd.reason
+            });
+          } catch (err) {
+            console.error(`[DebateManager] Errore salvataggio nuovo debater ${nd.id}:`, err);
+          }
+        }
+
+        // Reset the proposed list
+        this.newDebatersProposed = [];
+      }
 
       const selectedConfigs = this.currentSelection
         .map((sel) => this.allAvailableDebaters.find((d) => d.id === sel.id))
@@ -387,26 +511,113 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
    */
   private async routeNextSpeaker(lastDebaterName: string): Promise<void> {
     const roster = this.getDebaterRoster();
-    const prompt = `Hai appena ascoltato l'intervento di ${lastDebaterName}.
-Cronologia completa:\n${this.formatHistoryForPrompt()}
 
-Ecco i dibattitori disponibili al tavolo:
+    // FASE 1: Analisi moderatore e scelta candidati
+    const analysisPrompt = `L'intervento di ${lastDebaterName} si è appena concluso.
+Come Moderatore con scopo di raggiungere un altissimo livello progettuale, fai due cose:
+1) Sintetizza e aggiorna lo "Stato dell'Arte" (la lavagna). Non perdere i punti chiave già assodati. Integra con le ultime novità.
+2) Decidi da 1 a 4 debaters da cui vorresti sentire l'opinione adesso (candidateIds).
+
+LAVAGNA ATTUALE:
+${this.whiteboard}
+
+ULTIMI INTERVENTI (Cronologia):
+${this.formatHistoryForPrompt()}
+
+ELENCO DIBATTITORI DISPONIBILI:
 ${roster}
 
-Basandoti sul contenuto dell'ultimo intervento e sul flusso della discussione, decidi chi deve parlare dopo.
-REGOLE DI ROUTING:
-- Sii consapevole della fase del dibattito in cui vi trovate. Se siete alle prime battute di un nuovo business o idea, garantisci che la discussione sia incrementale di valore (prima i bisogni, i problemi risolti, il posizionamento, la fattibilità base).
-- NON far intervenire avvocati o legali se il quadro del prodotto non è ancora solido, a meno che il legale non sia interpellato per sbloccare uno snodo cruciale già emerso.
-Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition": "breve commento di transizione max 30 parole"}`;
+Rispondi in JSON:
+- "updatedWhiteboard": il testo aggiornato e compatto della lavagna.
+- "candidateIds": array di ID (max 4) dei debaters che vuoi interpellare ora.`;
+
+    let candidateIds: string[] = [];
+    try {
+      const analysisResult = (await this.generate(
+        moderatorAgent,
+        analysisPrompt,
+        moderatorAnalysisSchema,
+      )) as z.infer<typeof moderatorAnalysisSchema>;
+
+      this.whiteboard = analysisResult.updatedWhiteboard;
+      candidateIds = analysisResult.candidateIds || [];
+      log.debug(`> Lavagna aggiornata. Candidati selezionati dal moderatore: ${candidateIds.join(', ')}`);
+    } catch (err) {
+      log.error(`> Errore in FASE 1 di routing: ${err}`);
+      // Fallback
+      candidateIds = debaterAgents.map(d => d.id).slice(0, 3);
+    }
+
+    if (candidateIds.length === 0) {
+       // Se nessun candidato, round-robin
+       this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
+       return;
+    }
+
+    // Filtra per ID validi
+    const candidateAgents = debaterAgents.filter(d => candidateIds.includes(d.id));
+    if (candidateAgents.length === 0) {
+        this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
+        return;
+    }
+
+    // FASE 2: Interpellare i candidati scelti ("Alzata di mano" selettiva)
+    log.debug(`> Interpellando i candidati scelti per l'alzata di mano...`);
+    const handsRaised = await Promise.all(
+        candidateAgents.map(async (agent) => {
+            const handPrompt = `Sei ${agent.name}.
+Cronologia recente:
+${this.formatHistoryForPrompt()}
+
+Stato della Lavagna (assodato):
+${this.whiteboard}
+
+Il moderatore ti ha interpellato. Quanto è cruciale che tu intervenga proprio ADESSO per aggiungere valore al progetto o correggere un errore fatale?
+Rispondi SOLO in JSON: {"score": 1-10, "reason": "spiega brevemente perché devi parlare ora"}`;
+
+            try {
+                const res = (await this.generate(agent, handPrompt, raiseHandSchema)) as z.infer<typeof raiseHandSchema>;
+                return { agent, score: res.score, reason: res.reason };
+            } catch (err) {
+                return { agent, score: 0, reason: "Errore" };
+            }
+        })
+    );
+
+    // Formatta risultati alzate di mano per il moderatore
+    const handsSummary = handsRaised
+        .sort((a, b) => b.score - a.score)
+        .map(h => `- ${h.agent.id} (Score: ${h.score}/10): ${h.reason}`)
+        .join("\n");
+
+    // Mostra in UI (opzionale) un riassunto dell'alzata di mano per dare senso di dinamismo reale
+    const logHandsUi = handsRaised
+        .filter(h => h.score > 5)
+        .sort((a, b) => b.score - a.score)
+        .map(h => `✋ ${h.agent.name} (Volontà ${h.score}/10)`)
+        .join("\n");
+    if (logHandsUi) {
+        this.broadcast(`_...nel tavolo..._\n${logHandsUi}`);
+    }
+
+    // FASE 3: Decisione Finale del Moderatore
+    const finalPrompt = `Ecco i risultati dell'alzata di mano tra i debaters che hai interpellato:
+${handsSummary}
+
+Come Moderatore autoritario, in base alle loro motivazioni (score e reason) e allo stato della Lavagna:
+Decidi a chi cedere la parola. Non sei costretto a prendere quello col punteggio più alto se ritieni che la sua motivazione sia fuori fuoco per questa fase.
+
+Rispondi in JSON:
+{"nextSpeakerId": "id_scelto", "transition": "tua breve frase per dare la parola"}
+`;
 
     try {
       const result = (await this.generate(
         moderatorAgent,
-        prompt,
+        finalPrompt,
         routeNextSpeakerSchema,
       )) as z.infer<typeof routeNextSpeakerSchema>;
 
-      // Broadcast the moderator's transition comment
       if (result.transition) {
         this.history.push({
           role: "assistant",
@@ -416,29 +627,17 @@ Rispondi SOLO in formato JSON: {"nextSpeakerId": "id_del_prossimo", "transition"
         this.broadcast(`**[${moderatorAgent.name}]**\n\n${result.transition}`);
       }
 
-      // Find the chosen debater by ID
-      const chosenIndex = debaterAgents.findIndex(
-        (d) => d.id === result.nextSpeakerId,
-      );
-
+      const chosenIndex = debaterAgents.findIndex((d) => d.id === result.nextSpeakerId);
       if (chosenIndex !== -1) {
         this.currentDebaterIndex = chosenIndex;
-        log.debug(
-          `> Moderatore ha scelto: ${debaterAgents[chosenIndex].name} (${result.nextSpeakerId})`,
-        );
+        log.debug(`> Moderatore ha dato la parola a: ${debaterAgents[chosenIndex].name} (${result.nextSpeakerId})`);
       } else {
-        // Fallback: round-robin
-        log.debug(
-          `> ID "${result.nextSpeakerId}" non trovato, fallback round-robin`,
-        );
-        this.currentDebaterIndex =
-          (this.currentDebaterIndex + 1) % debaterAgents.length;
+        log.debug(`> ID "${result.nextSpeakerId}" non trovato, fallback round-robin`);
+        this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
       }
     } catch (err) {
-      // Fallback: round-robin on any error
-      log.debug("> Routing moderatore fallito, fallback round-robin");
-      this.currentDebaterIndex =
-        (this.currentDebaterIndex + 1) % debaterAgents.length;
+      log.debug("> Decisione finale fallita, fallback round-robin");
+      this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
     }
   }
 
@@ -468,8 +667,14 @@ Rispondi in formato JSON: {"text": "il tuo discorso qui"}`;
         const debater = debaterAgents[this.currentDebaterIndex];
         log.debug("> La parola a " + debater.id);
 
-        const prompt = `Il tema è: "${this.topic}". Cronologia:\n${this.formatHistoryForPrompt()}\nÈ il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.
-IMPORTANTE PER LA CREAZIONE DI VALORE: Cerca di costruire sul discorso precedente. Se l'idea o il quadro del problema è ancora nelle fasi iniziali, abbi cura di delinearlo in modo solido e incrementale senza porre freni inutili o pretese premature che esulano dalla fase di validazione/scoperta in corso.
+        // Aggiungiamo anche lo stato della lavagna al prompt del debater per aiutarlo a mantenere il focus.
+        const prompt = `Il tema è: "${this.topic}".
+Stato della Lavagna (Punti assodati dal tavolo finora):
+${this.whiteboard}
+
+Cronologia recente:\n${this.formatHistoryForPrompt()}\n
+È il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.
+IMPORTANTE PER LA CREAZIONE DI VALORE: Cerca di costruire sul discorso precedente tenendo conto di cosa c'è sulla lavagna. Se l'idea o il quadro del problema è ancora nelle fasi iniziali, abbi cura di delinearlo in modo solido e incrementale senza porre freni inutili o pretese premature che esulano dalla fase di validazione/scoperta in corso.
 IMPORTANTE: Rispondi ESATTAMENTE in questo formato JSON: {"text": "qui scrivi il tuo intervento"}`;
         const response = (await this.generate(
           debater,
