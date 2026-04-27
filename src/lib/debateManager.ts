@@ -3,6 +3,7 @@ import * as path from "path";
 import { Agent } from "@mastra/core/agent";
 import { z } from "zod";
 import { debateConfig, JudgeOutput, AgentConfig } from "./debateConfig";
+import { models, addendum } from "../lib/models";
 import {
   debaterSelectionSchema,
   routeNextSpeakerSchema,
@@ -89,7 +90,11 @@ export class DebateManager {
     this.onFinishedCallback = cb;
   }
   public setOnSelectionRequired(
-    cb: (selection: DebaterSelection[], allAvailable: AgentConfig[], moderatorMessage?: string) => void,
+    cb: (
+      selection: DebaterSelection[],
+      allAvailable: AgentConfig[],
+      moderatorMessage?: string,
+    ) => void,
   ) {
     this.onSelectionRequiredCallback = cb;
   }
@@ -108,7 +113,8 @@ export class DebateManager {
     // Enforce prompt instructions when schema is provided
     let finalPrompt = prompt;
     if (schema) {
-      finalPrompt += "\n\nIMPORTANT: You must return ONLY a valid JSON object. Do not include any other text or markdown formatting outside the JSON object.";
+      finalPrompt +=
+        "\n\nIMPORTANT: You must return ONLY a valid JSON object. Do not include any other text or markdown formatting outside the JSON object.";
     }
 
     while (attempt < maxRetries) {
@@ -133,11 +139,21 @@ export class DebateManager {
         const response = await agent.generate(finalPrompt);
         return response.text;
       } catch (err: any) {
-        if (schema && (err.name === 'NoObjectGeneratedError' || err.message?.includes('No object generated') || err.message?.includes('JSON') || err.message?.includes('parse'))) {
+        if (
+          schema &&
+          (err.name === "NoObjectGeneratedError" ||
+            err.message?.includes("No object generated") ||
+            err.message?.includes("JSON") ||
+            err.message?.includes("parse"))
+        ) {
           attempt++;
-          console.warn(`[DebateManager] Schema generation failed for ${agent.name} on attempt ${attempt}: ${err.message}`);
+          console.warn(
+            `[DebateManager] Schema generation failed for ${agent.name} on attempt ${attempt}: ${err.message}`,
+          );
           if (attempt >= maxRetries) {
-            console.warn(`[DebateManager] Max retries reached for structured generation. Attempting fallback text generation and manual parse.`);
+            console.warn(
+              `[DebateManager] Max retries reached for structured generation. Attempting fallback text generation and manual parse.`,
+            );
             try {
               // Fallback to text generation
               const response = await agent.generate(finalPrompt);
@@ -150,10 +166,12 @@ export class DebateManager {
                 // Validate with schema
                 return schema.parse(parsed);
               } else {
-                 throw new Error("No JSON found in fallback text response");
+                throw new Error("No JSON found in fallback text response");
               }
             } catch (fallbackErr: any) {
-              console.error(`[DebateManager] Fallback parsing also failed: ${fallbackErr.message}`);
+              console.error(
+                `[DebateManager] Fallback parsing also failed: ${fallbackErr.message}`,
+              );
               throw err; // Throw the original error or the new one, this will trigger the forcefully stop (stopDebate)
             }
           }
@@ -204,7 +222,9 @@ export class DebateManager {
       this.status === "SELECTING_DEBATERS" ||
       this.status === "ASKING_SELECTION_PREFERENCE"
     ) {
-      console.log("[DebateManager] Debate già in corso o in selezione, ritorno.");
+      console.log(
+        "[DebateManager] Debate già in corso o in selezione, ritorno.",
+      );
       return;
     }
 
@@ -242,29 +262,43 @@ export class DebateManager {
 
     const lowerInput = input.trim().toLowerCase();
     const isSmart = lowerInput === "smart";
-    const isAuto = ["mod", "automatico", "procedi", "ok"].includes(lowerInput) || lowerInput.length > 50;
+    const isAuto =
+      ["mod", "automatico", "procedi", "ok"].includes(lowerInput) ||
+      lowerInput.length > 50;
 
     this.status = "SELECTING_DEBATERS";
     if (isSmart) {
-      this.broadcast(`🧠 Analisi smart dell'argomento... il moderatore proporrà o creerà i partecipanti ideali al volo.`);
+      this.broadcast(
+        `🧠 Analisi smart dell'argomento... il moderatore proporrà o creerà i partecipanti ideali al volo.`,
+      );
       await this.proposeDebaters(undefined, false, true);
     } else if (isAuto) {
-      this.broadcast(`⏳ Valutazione dell'argomento e selezione dei partecipanti ottimali da parte del moderatore...`);
+      this.broadcast(
+        `⏳ Valutazione dell'argomento e selezione dei partecipanti ottimali da parte del moderatore...`,
+      );
       await this.proposeDebaters();
     } else {
-      this.broadcast(`⏳ Acquisizione della tua selezione e valutazione da parte del moderatore...`);
+      this.broadcast(
+        `⏳ Acquisizione della tua selezione e valutazione da parte del moderatore...`,
+      );
       await this.proposeDebaters(input, true);
     }
   }
 
-  private async proposeDebaters(userFeedback?: string, isDirectUserSelection: boolean = false, isSmartSelection: boolean = false) {
+  private async proposeDebaters(
+    userFeedback?: string,
+    isDirectUserSelection: boolean = false,
+    isSmartSelection: boolean = false,
+  ) {
     console.log(
       "[DebateManager] proposeDebaters chiamato con feedback:",
       userFeedback,
     );
 
     // Sort available debaters exactly as in telegram.ts to match user's visual indices
-    const sortedAvailable = [...this.allAvailableDebaters].sort((a, b) => a.name.localeCompare(b.name));
+    const sortedAvailable = [...this.allAvailableDebaters].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
 
     const rosterList = sortedAvailable
       .map(
@@ -328,7 +362,9 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
         debaterSelectionSchema,
       );
 
-      const parsedResult = selectionResult as z.infer<typeof debaterSelectionSchema>;
+      const parsedResult = selectionResult as z.infer<
+        typeof debaterSelectionSchema
+      >;
       const selection = parsedResult.debaters;
       const newDebaters = parsedResult.newDebaters || [];
 
@@ -346,27 +382,23 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
       // User approval of new debaters will trigger physical file creation.
       const allCombinedSelection = [
         ...selection,
-        ...newDebaters.map((nd) => ({ id: nd.id, reason: nd.reason }))
+        ...newDebaters.map((nd) => ({ id: nd.id, reason: nd.reason })),
       ];
 
       // Add the proposed new debaters to a temporary pool so the telegram bot can show their names
       const allAvailableWithNew: AgentConfig[] = [
         ...this.allAvailableDebaters,
-        ...newDebaters.map(nd => ({
+        ...newDebaters.map((nd) => ({
           id: nd.id,
           name: nd.name,
           role: "debater" as const,
-          model: {
-            provider: "OPEN_AI" as "OPEN_AI",
-            name: "gpt-4o-mini",
-            toolChoice: "auto",
-          } as any, // bypassing strict ModelConfig check since it requires specific mastra structures sometimes
+          model: models.debater,
           enabled: true,
           skills: nd.skills,
           whenToUse: nd.whenToUse,
           description: nd.description,
-          instructions: nd.instructions
-        }))
+          instructions: nd.instructions + " " + addendum,
+        })),
       ];
 
       if (this.onSelectionRequiredCallback) {
@@ -374,7 +406,7 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
         this.onSelectionRequiredCallback(
           allCombinedSelection,
           allAvailableWithNew,
-          parsedResult.moderatorMessage
+          parsedResult.moderatorMessage,
         );
       }
     } catch (err) {
@@ -398,29 +430,29 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
 
       // Write proposed new debaters to physical files if any
       if (this.newDebatersProposed.length > 0) {
-        this.broadcast(`⏳ Salvataggio dei nuovi debaters generati su disco...`);
+        this.broadcast(
+          `⏳ Salvataggio dei nuovi debaters generati su disco...`,
+        );
         const debatersDir = path.join(__dirname, "..", "debaters");
         for (const nd of this.newDebatersProposed) {
           // Sanitize ID to prevent path traversal or invalid filenames
-          const safeId = nd.id.replace(/[^a-zA-Z0-9_]/g, '');
+          const safeId = nd.id.replace(/[^a-zA-Z0-9_]/g, "");
           if (!safeId) continue;
 
           const filePath = path.join(debatersDir, `${safeId}.ts`);
           const fileContent = `import { AgentConfig } from "../lib/debateConfig";
+import { models, addendum } from "../lib/models";
 
 const config: AgentConfig = {
   id: ${JSON.stringify(safeId)},
   name: ${JSON.stringify(nd.name)},
   role: "debater",
-  model: {
-    provider: "OPEN_AI",
-    name: "gpt-4o-mini",
-  },
+  model: models.debater,
   enabled: true,
   skills: ${JSON.stringify(nd.skills, null, 2)},
   whenToUse: ${JSON.stringify(nd.whenToUse)},
   description: ${JSON.stringify(nd.description)},
-  instructions: ${JSON.stringify(nd.instructions)}
+  instructions: ${JSON.stringify(nd.instructions) + " " + addendum},
 };
 
 export default config;
@@ -434,25 +466,24 @@ export default config;
               id: nd.id,
               name: nd.name,
               role: "debater" as const,
-              model: {
-                provider: "OPEN_AI" as "OPEN_AI",
-                name: "gpt-4o-mini",
-                toolChoice: "auto",
-              } as any,
+              model: models.debater,
               enabled: true,
               skills: nd.skills,
               whenToUse: nd.whenToUse,
               description: nd.description,
-              instructions: nd.instructions
+              instructions: nd.instructions + " " + addendum,
             });
 
             // Add to currentSelection so it gets included
             this.currentSelection.push({
               id: nd.id,
-              reason: nd.reason
+              reason: nd.reason,
             });
           } catch (err) {
-            console.error(`[DebateManager] Errore salvataggio nuovo debater ${nd.id}:`, err);
+            console.error(
+              `[DebateManager] Errore salvataggio nuovo debater ${nd.id}:`,
+              err,
+            );
           }
         }
 
@@ -541,31 +572,37 @@ Rispondi in JSON:
 
       this.whiteboard = analysisResult.updatedWhiteboard;
       candidateIds = analysisResult.candidateIds || [];
-      log.debug(`> Lavagna aggiornata. Candidati selezionati dal moderatore: ${candidateIds.join(', ')}`);
+      log.debug(
+        `> Lavagna aggiornata. Candidati selezionati dal moderatore: ${candidateIds.join(", ")}`,
+      );
     } catch (err) {
       log.error(`> Errore in FASE 1 di routing: ${err}`);
       // Fallback
-      candidateIds = debaterAgents.map(d => d.id).slice(0, 3);
+      candidateIds = debaterAgents.map((d) => d.id).slice(0, 3);
     }
 
     if (candidateIds.length === 0) {
-       // Se nessun candidato, round-robin
-       this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
-       return;
+      // Se nessun candidato, round-robin
+      this.currentDebaterIndex =
+        (this.currentDebaterIndex + 1) % debaterAgents.length;
+      return;
     }
 
     // Filtra per ID validi
-    const candidateAgents = debaterAgents.filter(d => candidateIds.includes(d.id));
+    const candidateAgents = debaterAgents.filter((d) =>
+      candidateIds.includes(d.id),
+    );
     if (candidateAgents.length === 0) {
-        this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
-        return;
+      this.currentDebaterIndex =
+        (this.currentDebaterIndex + 1) % debaterAgents.length;
+      return;
     }
 
     // FASE 2: Interpellare i candidati scelti ("Alzata di mano" selettiva)
     log.debug(`> Interpellando i candidati scelti per l'alzata di mano...`);
     const handsRaised = await Promise.all(
-        candidateAgents.map(async (agent) => {
-            const handPrompt = `Sei ${agent.name}.
+      candidateAgents.map(async (agent) => {
+        const handPrompt = `Sei ${agent.name}.
 Cronologia recente:
 ${this.formatHistoryForPrompt()}
 
@@ -575,29 +612,33 @@ ${this.whiteboard}
 Il moderatore ti ha interpellato. Quanto è cruciale che tu intervenga proprio ADESSO per aggiungere valore al progetto o correggere un errore fatale?
 Rispondi SOLO in JSON: {"score": 1-10, "reason": "spiega brevemente perché devi parlare ora"}`;
 
-            try {
-                const res = (await this.generate(agent, handPrompt, raiseHandSchema)) as z.infer<typeof raiseHandSchema>;
-                return { agent, score: res.score, reason: res.reason };
-            } catch (err) {
-                return { agent, score: 0, reason: "Errore" };
-            }
-        })
+        try {
+          const res = (await this.generate(
+            agent,
+            handPrompt,
+            raiseHandSchema,
+          )) as z.infer<typeof raiseHandSchema>;
+          return { agent, score: res.score, reason: res.reason };
+        } catch (err) {
+          return { agent, score: 0, reason: "Errore" };
+        }
+      }),
     );
 
     // Formatta risultati alzate di mano per il moderatore
     const handsSummary = handsRaised
-        .sort((a, b) => b.score - a.score)
-        .map(h => `- ${h.agent.id} (Score: ${h.score}/10): ${h.reason}`)
-        .join("\n");
+      .sort((a, b) => b.score - a.score)
+      .map((h) => `- ${h.agent.id} (Score: ${h.score}/10): ${h.reason}`)
+      .join("\n");
 
     // Mostra in UI (opzionale) un riassunto dell'alzata di mano per dare senso di dinamismo reale
     const logHandsUi = handsRaised
-        .filter(h => h.score > 5)
-        .sort((a, b) => b.score - a.score)
-        .map(h => `✋ ${h.agent.name} (Volontà ${h.score}/10)`)
-        .join("\n");
+      .filter((h) => h.score > 5)
+      .sort((a, b) => b.score - a.score)
+      .map((h) => `✋ ${h.agent.name} (Volontà ${h.score}/10)`)
+      .join("\n");
     if (logHandsUi) {
-        this.broadcast(`_...nel tavolo..._\n${logHandsUi}`);
+      this.broadcast(`_...nel tavolo..._\n${logHandsUi}`);
     }
 
     // FASE 3: Decisione Finale del Moderatore
@@ -627,17 +668,25 @@ Rispondi in JSON:
         this.broadcast(`**[${moderatorAgent.name}]**\n\n${result.transition}`);
       }
 
-      const chosenIndex = debaterAgents.findIndex((d) => d.id === result.nextSpeakerId);
+      const chosenIndex = debaterAgents.findIndex(
+        (d) => d.id === result.nextSpeakerId,
+      );
       if (chosenIndex !== -1) {
         this.currentDebaterIndex = chosenIndex;
-        log.debug(`> Moderatore ha dato la parola a: ${debaterAgents[chosenIndex].name} (${result.nextSpeakerId})`);
+        log.debug(
+          `> Moderatore ha dato la parola a: ${debaterAgents[chosenIndex].name} (${result.nextSpeakerId})`,
+        );
       } else {
-        log.debug(`> ID "${result.nextSpeakerId}" non trovato, fallback round-robin`);
-        this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
+        log.debug(
+          `> ID "${result.nextSpeakerId}" non trovato, fallback round-robin`,
+        );
+        this.currentDebaterIndex =
+          (this.currentDebaterIndex + 1) % debaterAgents.length;
       }
     } catch (err) {
       log.debug("> Decisione finale fallita, fallback round-robin");
-      this.currentDebaterIndex = (this.currentDebaterIndex + 1) % debaterAgents.length;
+      this.currentDebaterIndex =
+        (this.currentDebaterIndex + 1) % debaterAgents.length;
     }
   }
 
@@ -787,7 +836,9 @@ Rispondi in formato JSON: {"summary": "sintesi estesa (max 400 parole)", "inShor
       });
 
       // We ONLY broadcast the straight-to-the-point 'inShort' to the Telegram chat
-      this.broadcast(`**[${moderatorAgent.name} (Sunto Finale)]**\n\n${inShort}`);
+      this.broadcast(
+        `**[${moderatorAgent.name} (Sunto Finale)]**\n\n${inShort}`,
+      );
 
       // Manual call to saveArtifactTool as safety measure if Agent didn't trigger it via schema generation
       // This ensures files are ALWAYS created even if tool_use wasn't explicitly triggered by the LLM
