@@ -21,8 +21,20 @@ L'interfaccia utente principale è un Bot Telegram. Ecco i comandi a disposizion
 - `/whiteboard`: Stampa a schermo la **Lavagna (Stato dell'Arte)** aggiornata in tempo reale dal Moderatore.
 - `/stop`: Interrompe immediatamente il dibattito e forza il Moderatore a generare un sunto finale di quanto discusso finora.
 
+Come copia incolla si può usare:
+
+```
+start - Messaggio di benvenuto
+help - Mostra istruzioni di base
+debate - Inizia un dibattito (es /debate Nuova idea)
+status - Mostra stato attuale
+whiteboard - Stampa la lavagna aggiornata
+stop - Interrompe il dibattito
+```
+
 **In Fase di Selezione**:
 Quando avvii un dibattito, il bot ti chiederà come vuoi scegliere i partecipanti:
+
 - Inviando **numeri** (es. `1, 4, 7`): Scegli tu dalla lista i partecipanti esatti.
 - Scrivendo **`mod`** o **`automatico`**: Il Moderatore sceglierà la squadra ottimale dalla lista esistente.
 - Scrivendo **`smart`**: Il Moderatore creerà e aggiungerà nuovi ruoli altamente specifici per il tuo topic qualora non fossero presenti.

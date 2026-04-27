@@ -36,10 +36,10 @@
     "@ai-sdk/mistral": "^1.1.1",
     "@ai-sdk/openai": "^1.1.14",
     "@volcanicminds/backend": "^2.3.2",
-    "@volcanicminds/tools": "^0.1.0",
+    "@volcanicminds/tools": "^0.0.3",
     "ai": "^6.0.116",
     "dotenv": "^17.3.1",
-    "mastra": "^0.10.12",
+    "mastra": "^0.12.3",
     "ollama-ai-provider": "^1.2.0",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
@@ -50,7 +50,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "cross-env": "^10.1.0",
-    "mocha": "^11.7.5",
+    "mocha": "^7.2.0",
     "tsx": "^4.21.0"
   }
 }
