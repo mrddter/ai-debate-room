@@ -33,13 +33,21 @@ Per far funzionare il progetto, devi collegare il bot usando **BotFather** su Te
 
 1. Apri Telegram e cerca **@BotFather**.
 2. Scrivi `/newbot` e segui le istruzioni per dare un nome e uno username al tuo bot.
-3. BotFather ti fornirà un **Token HTTP API** (es. `123456789:ABCDefghIJKLmnopQRST...`). Copialo.
-4. Vai nella chat del bot appena creato o in un gruppo in cui lo hai aggiunto e scrivi un messaggio qualsiasi.
-5. Per ottenere il tuo `Chat ID`, puoi forwardare il messaggio al bot `@userinfobot` o usare le API di Telegram per leggere il tuo ID (il bot include un middleware di sicurezza che risponderà **solo** alla chat configurata in questo ID).
-6. Crea un file `.env` nella root del progetto o esporta queste variabili d'ambiente:
-   \`\`\`bash
+3. Imposta i comandi rapidi inviando `/setcommands` a BotFather, seleziona il tuo bot e incolla questo testo:
+   ```text
+   start - Avvia il bot e mostra le istruzioni base
+   debate - Inizia un nuovo dibattito (es. /debate [argomento])
+   status - Mostra lo stato attuale del dibattito
+   whiteboard - Mostra la lavagna con lo stato dell'arte
+   stop - Interrompe il dibattito e genera il sunto finale
+   ```
+4. BotFather ti fornirà un **Token HTTP API** (es. `123456789:ABCDefghIJKLmnopQRST...`). Copialo.
+5. Vai nella chat del bot appena creato o in un gruppo in cui lo hai aggiunto e scrivi un messaggio qualsiasi.
+6. Per ottenere il tuo `Chat ID`, puoi forwardare il messaggio al bot `@userinfobot` o usare le API di Telegram per leggere il tuo ID (il bot include un middleware di sicurezza che risponderà **solo** alla chat configurata in questo ID).
+7. Crea un file `.env` nella root del progetto o esporta queste variabili d'ambiente:
+   ```bash
    TELEGRAM_BOT_TOKEN="il_tuo_token_qui"
    TELEGRAM_CHAT_ID="il_tuo_chat_id_qui"
    OPENAI_API_KEY="la_tua_chiave_openai"
-   \`\`\`
-7. Installa le dipendenze con `npm install` e avvia con `npm run dev`.
+   ```
+8. Installa le dipendenze con `npm install` e avvia con `npm run dev`.
