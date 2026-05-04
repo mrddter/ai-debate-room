@@ -1,0 +1,33 @@
+name: Force Merge All PRs
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  merge:
+    name: Force Merge
+    runs-on: ubuntu-latest
+    # Abbiamo rimosso la riga 'if: startsWith(...)'
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Approve PR
+        run: gh pr review --approve "$PR_URL" || true
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Force Merge PR
+        run: gh pr merge --squash --admin --delete-branch "$PR_URL" || gh pr merge --squash --delete-branch "$PR_URL" || true
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
