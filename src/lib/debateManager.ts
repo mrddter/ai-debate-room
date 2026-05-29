@@ -47,6 +47,7 @@ export interface NewDebater {
   whenToUse: string;
   description: string;
   instructions: string;
+  tools?: string[];
 }
 
 export let activeDebate: DebateManager | null = null;
@@ -323,7 +324,7 @@ REGOLE PER LA SELEZIONE (MOLTO IMPORTANTE):
 Devi analizzare in profondità il topic e decidere di quali figure necessita il tavolo.
 Cerca i candidati ideali tra i profili disponibili sopra e includi i loro "id" in "debaters".
 TUTTAVIA, se ti accorgi che mancano figure fondamentali o necessiti di ruoli specifici non presenti, DEVI crearli da zero.
-Per i nuovi debaters, popolali nell'array "newDebaters", fornendo "id" (formato snake_case univoco, ad es. "esperto_blockchain"), "name", "reason", "skills", "whenToUse", "description" e "instructions" (un prompt comportamentale dettagliato per la personalità dell'agente).
+Per i nuovi debaters, popolali nell'array "newDebaters", fornendo "id" (formato snake_case univoco, ad es. "esperto_blockchain"), "name", "reason", "skills", "whenToUse", "description", "instructions" (un prompt comportamentale dettagliato per la personalità dell'agente) e opzionalmente "tools" (array di stringhe, che può includere "webSearch" per ricerche web e/o "fetchWebpage" per leggere URL specifici, assegnali solo se realmente utili al ruolo).
 Rispondi in formato JSON con:
 - "debaters": array dei debaters scelti dall'elenco.
 - "newDebaters": array dei debaters creati al volo (può essere vuoto se non necessari).
@@ -453,6 +454,7 @@ const config: AgentConfig = {
   whenToUse: ${JSON.stringify(nd.whenToUse)},
   description: ${JSON.stringify(nd.description)},
   instructions: ${JSON.stringify(nd.instructions) + " " + addendum},
+  tools: ${nd.tools ? JSON.stringify(nd.tools) : "[]"},
 };
 
 export default config;
@@ -468,6 +470,7 @@ export default config;
               role: "debater" as const,
               model: models.debater,
               enabled: true,
+              tools: nd.tools,
               skills: nd.skills,
               whenToUse: nd.whenToUse,
               description: nd.description,
