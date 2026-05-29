@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { activeDebate } from "../lib/debateManager";
+import { sharedWhiteboardState } from "./sharedWhiteboardTool";
 import * as log from "@volcanicminds/tools/logger";
 import { debaterAgents } from "../lib/agents";
 
@@ -105,6 +106,17 @@ export const saveArtifactTool = createTool({
         summaryContent,
         "utf-8",
       );
+
+      // 4. Shared Whiteboard
+      let whiteboardContent = `# Shared Whiteboard\n\n## Main Concepts\n${sharedWhiteboardState.mainConcepts}\n\n## Notes\n`;
+      for (const noteId of Object.keys(sharedWhiteboardState.notes)) {
+        const note = sharedWhiteboardState.notes[noteId];
+        whiteboardContent += `- **[${note.id}]**: ${note.content}\n`;
+        if (note.linkedTo.length > 0) {
+          whiteboardContent += `  - Linked to: ${note.linkedTo.join(", ")}\n`;
+        }
+      }
+      await fs.writeFile(path.join(dir, "shared-whiteboard.md"), whiteboardContent, "utf-8");
 
       log.debug(`Saved debate artifacts in ${dir}`);
 
