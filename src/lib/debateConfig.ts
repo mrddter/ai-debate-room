@@ -6,6 +6,7 @@ import { z } from "zod";
 export type DebateRole = "moderator" | "debater" | "judge";
 
 export interface AgentConfig {
+  tools?: string[];
   id: string;
   enabled: boolean;
   name: string;

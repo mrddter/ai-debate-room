@@ -16,6 +16,7 @@ export const debaterSelectionSchema = z.object({
       whenToUse: z.string(),
       description: z.string(),
       instructions: z.string(),
+      tools: z.array(z.string()).optional(),
     })
   ).optional(),
   moderatorMessage: z.string().optional(),
