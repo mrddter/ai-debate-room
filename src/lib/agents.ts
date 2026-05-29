@@ -33,6 +33,10 @@ export async function initializeDebaterAgents(selectedConfigs: AgentConfig[]) {
   debaterAgents = await Promise.all(
     selectedConfigs.map((config) => {
       let agentTools: Record<string, any> = {};
+
+      // Always inject the sharedWhiteboardTool for all debaters
+      agentTools["sharedWhiteboard"] = availableTools.sharedWhiteboard;
+
       if (config.tools && Array.isArray(config.tools)) {
         config.tools.forEach(toolKey => {
           if (availableTools[toolKey as AvailableToolKeys]) {
