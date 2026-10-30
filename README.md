@@ -24,7 +24,7 @@ Ogni chiamata ai modelli riceve l'intera trascrizione del dibattito, un messaggi
 
 ### Giudici
 
-Tre giudici valutano la fase in corso una volta per giro, cioè ogni N interventi con N pari al numero di partecipanti (`judgeEvery` in `src/lib/debateConfig.ts` cambia la frequenza); il conteggio riparte a ogni cambio di fase. Una fase si chiude quando i giudici sono tutti pronti, oppure quando almeno due terzi sono pronti e due terzi assegnano maturità 5; chiusa l'ultima fase, il dibattito finisce. Il limite di sicurezza è di 120 interventi (`maxTurns`), appena sopra quanti ne copre il budget di spesa.
+Tre giudici valutano la fase in corso una volta per giro, cioè ogni N interventi con N pari al numero di partecipanti (`judgeEvery` in `src/lib/debateConfig.ts` cambia la frequenza); il conteggio riparte a ogni cambio di fase. Una fase si chiude quando i giudici sono tutti pronti, oppure quando almeno due terzi sono pronti e due terzi assegnano maturità 5; chiusa l'ultima fase, il dibattito finisce. Il limite di sicurezza è di 250 interventi (`maxTurns`); con il budget di spesa attivo si arriva prima al tetto di spesa.
 
 ### Il committente al tavolo
 

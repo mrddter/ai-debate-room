@@ -36,8 +36,8 @@ export interface DebateSettings {
 }
 
 export const debateConfig: DebateSettings = {
-  // Just above what the budget buys, so the budget is the real stop and this only bounds a run with the budget off
-  maxTurns: 120,
+  // Well above what the budget buys: with the budget on, the spend cap stops the debate first
+  maxTurns: 250,
   // Measured on Opus debaters: $0.32 fixed (selection, summary), about $0.16 per speech, and the transcript grows about
   // 1K tokens per speech, so cache reads add about $0.0003 x N² over N speeches: $20 buys about 100 speeches
   maxCostUsd: 20,
