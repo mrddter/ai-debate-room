@@ -8,11 +8,11 @@ import {
   generatedToConfig,
   loadDebaterConfigs,
   sanitizeDebaterId,
-  toToolKeys,
   writeDebaterModule,
   type GeneratedDebater,
 } from "./debaterFiles";
 import { generateObject, generateText, type CallOptions, type TextResult } from "./llm";
+import { hasPrice } from "./pricing";
 import {
   handPrompt,
   introPrompt,
@@ -21,6 +21,7 @@ import {
   routingPrompt,
   selectionPrompt,
   speechPrompt,
+  stageAnnouncement,
   summaryPrompt,
   type SelectionMode,
 } from "./prompts";
@@ -34,14 +35,39 @@ import {
 } from "./schemas";
 import type { ModelConfig } from "./volcanicAI";
 import { createVolcanicAgent } from "./volcanicAI";
-import { MODERATOR_ID, type DebateEventBody, type FinishReason, type HandKind, type LlmPurpose, type SessionSettings } from "./session/events";
-import { chooseSpeaker, cleanBoardOp, debateConcluded, judgesDue, normalizeUrl, truncateWords, type Verdict } from "./session/rules";
+import {
+  MODERATOR_ID,
+  USER_ID,
+  type DebateEventBody,
+  type DebateMode,
+  type DebateStage,
+  type FinishReason,
+  type HandKind,
+  type LlmPurpose,
+  type SessionSettings,
+} from "./session/events";
+import {
+  budgetSpent,
+  chooseSpeaker,
+  cleanBoardOp,
+  judgesDue,
+  nextStage,
+  normalizeUrl,
+  stageConcluded,
+  truncateWords,
+  type Verdict,
+} from "./session/rules";
+import { usd } from "./session/projections";
 import { DebateSession } from "./session/session";
 import { nameOf, type DebateState } from "./session/state";
 import { renderBoard, type BoardOp } from "./session/whiteboard";
 import { buildTools, WEB_TOOL_KEYS, type ToolKey } from "../mcp/index";
 
 export type DebateStatus = "IDLE" | "ASKING_SELECTION_PREFERENCE" | "SELECTING_DEBATERS" | "RUNNING" | "FINISHED";
+
+// queued: hand in the queue; submitted: the text became the speech the debate was waiting for;
+// has_floor: the debate already waits for the user's speech; not_running: no debate to join
+export type UserHandResult = "queued" | "submitted" | "has_floor" | "not_running";
 
 export interface DebaterSelection {
   id: string;
@@ -53,6 +79,8 @@ export interface DebateManagerOptions {
   artifactsRoot?: string;
   debatersDir?: string;
   settings?: Partial<SessionSettings>;
+  // How long the debate waits for the user's speech once they have the floor
+  userSpeechTimeoutMs?: number;
 }
 
 type SelectionResult = z.infer<typeof debaterSelectionSchema>;
@@ -66,6 +94,20 @@ const RESEARCH_STEPS = 3;
 const NO_RESEARCH = "NESSUNA RICERCA";
 const AUTO_SELECTION_WORDS = ["mod", "automatico", "procedi", "ok"];
 const CONFIRM_WORDS = ["conferma", "ok"];
+const USER_SPEECH_TIMEOUT_MS = 10 * 60_000;
+const USER_PITCH = "chiede la parola";
+// About 250 words in total: readable in one or two minutes
+const MAX_FOCAL_POINTS = 7;
+const MAX_FOCAL_WORDS = 35;
+const BUDGET_WARNING_SHARE = 0.8;
+
+const FINISH_NOTES: Record<FinishReason, string> = {
+  judges: "",
+  max_turns: " per il limite di interventi",
+  budget: " per il budget di spesa",
+  user_stop: " anticipatamente",
+  error: " per un errore",
+};
 
 const HAND_LABELS: Record<HandKind, string> = {
   replica: "replica",
@@ -81,6 +123,17 @@ class StopRequested extends Error {
 }
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// Someone a debater can address: a debater at the table or the user
+const isParticipant = (state: DebateState, id: string | undefined) => id === USER_ID || state.debaters.some((d) => d.id === id);
+
+// The model is asked for 3 to 7 short points; the cap keeps the list readable even when it ignores that
+function focalPointsOf(points: string[]): string[] {
+  return points
+    .map((point) => truncateWords(point, MAX_FOCAL_WORDS))
+    .filter(Boolean)
+    .slice(0, MAX_FOCAL_POINTS);
+}
 
 /**
  * Drives one debate at a time. Every state change goes through DebateSession.emit, so the event log
@@ -102,6 +155,11 @@ export class DebateManager {
   private busy = false;
   private loop: Promise<void> | null = null;
   private outbox: Promise<void> = Promise.resolve();
+  // Text sent with /mano: it becomes the user's speech when they get the floor (lost on restart, then asked again)
+  private pendingUserText: string | null = null;
+  // Set while the debate waits for the user's speech
+  private deliverUserSpeech: ((text: string | null) => void) | null = null;
+  private budgetWarned = false;
 
   private onMessageCallback?: MessageListener;
   private onFinishedCallback?: () => void;
@@ -148,6 +206,9 @@ export class DebateManager {
   get isActive(): boolean {
     return ["ASKING_SELECTION_PREFERENCE", "SELECTING_DEBATERS", "RUNNING"].includes(this.currentStatus);
   }
+  get awaitingUserSpeech(): boolean {
+    return this.deliverUserSpeech !== null;
+  }
 
   private get factory(): AgentFactory {
     return this.options.agentFactory ?? createVolcanicAgent;
@@ -159,7 +220,7 @@ export class DebateManager {
     return this.options.debatersDir ?? DEBATERS_DIR;
   }
 
-  public async startDebate(topic: string) {
+  public async startDebate(topic: string, mode: DebateMode = "structured") {
     // No default topic: the interface asks the user for one before starting
     if (!topic.trim()) throw new Error("A debate needs a topic");
     if (this.isActive) return;
@@ -168,11 +229,11 @@ export class DebateManager {
     try {
       const settings: SessionSettings = {
         maxTurns: debateConfig.maxTurns,
-        contextWindow: debateConfig.contextWindow,
+        maxCostUsd: debateConfig.maxCostUsd,
         judgeEvery: debateConfig.judgeEvery,
         ...this.options.settings,
       };
-      this.session = DebateSession.create(this.artifactsRoot, topic.trim(), settings);
+      this.session = DebateSession.create(this.artifactsRoot, topic.trim(), settings, { mode });
       [this.core, this.available] = await Promise.all([createCoreAgents(this.factory), loadDebaterConfigs(this.debatersDir)]);
     } catch (err) {
       this.endWithoutDebate("error", `startup: ${errorMessage(err)}`);
@@ -239,6 +300,30 @@ export class DebateManager {
     }
   }
 
+  /** The user asks for the floor; with a text, that text becomes their speech as soon as they get it. */
+  public raiseUserHand(text = ""): UserHandResult {
+    const session = this.session;
+    if (this.currentStatus !== "RUNNING" || !session || this.stopRequested) return "not_running";
+    const clean = text.trim();
+    if (this.deliverUserSpeech) {
+      if (!clean) return "has_floor";
+      this.deliverUserSpeech(clean);
+      return "submitted";
+    }
+    if (clean) this.pendingUserText = clean;
+    const pitch = truncateWords(clean, MAX_PITCH_WORDS) || USER_PITCH;
+    this.record(session, { type: "hand_raised", debaterId: USER_ID, kind: "nuovo_punto", pitch });
+    return "queued";
+  }
+
+  /** Delivers the speech the debate is waiting for; false when the user does not have the floor. */
+  public submitUserSpeech(text: string): boolean {
+    const clean = text.trim();
+    if (!this.deliverUserSpeech || !clean) return false;
+    this.deliverUserSpeech(clean);
+    return true;
+  }
+
   /** Reopens the most recent debate that was running when the process died and continues it from its event log. */
   public async resume(): Promise<boolean> {
     if (this.isActive) return false;
@@ -276,6 +361,9 @@ export class DebateManager {
     this.stopRequested = false;
     this.busy = false;
     this.loop = null;
+    this.pendingUserText = null;
+    this.deliverUserSpeech = null;
+    this.budgetWarned = false;
   }
 
   private broadcast(msg: string) {
@@ -322,8 +410,8 @@ export class DebateManager {
     };
   }
 
-  private tools(session: DebateSession, keys: readonly ToolKey[]): ToolsInput | undefined {
-    return keys.length > 0 ? buildTools(keys, { getState: () => session.state }) : undefined;
+  private tools(keys: readonly ToolKey[]): ToolsInput | undefined {
+    return keys.length > 0 ? buildTools(keys) : undefined;
   }
 
   private endWithoutDebate(reason: FinishReason, error?: string) {
@@ -393,7 +481,7 @@ export class DebateManager {
         skills: debater.skills,
         whenToUse: debater.whenToUse,
         instructions: debater.instructions,
-        tools: toToolKeys(debater.tools, id),
+        tools: debater.tools ?? [],
       });
     }
 
@@ -477,6 +565,7 @@ export class DebateManager {
       } else {
         console.error("[DebateManager] critical error during the debate:", err);
         this.record(session, { type: "error", scope: "turn", message: errorMessage(err) });
+        this.broadcast(`❌ Errore durante il dibattito: ${errorMessage(err)}`);
         reason = "error";
       }
     }
@@ -486,6 +575,7 @@ export class DebateManager {
   private async debate(session: DebateSession): Promise<FinishReason> {
     const { state } = session;
     this.throwIfStopped();
+    this.assertBudgetPriced(state.settings.maxCostUsd);
     if (!state.messages.some((message) => message.kind === "moderator")) await this.intro(session);
     // Fresh start or resume: the table needs hands before the first pick
     if (state.queue.length === 0) await this.raiseHands(session, state.debaters.filter((d) => d.id !== state.lastSpeakerId));
@@ -493,12 +583,46 @@ export class DebateManager {
     for (;;) {
       this.throwIfStopped();
       if (state.turn >= state.settings.maxTurns) return "max_turns";
+      if (budgetSpent(state)) return "budget";
+      this.warnBudget(state);
       const speakerId = await this.giveFloor(session);
-      await this.speak(session, speakerId);
+      // The user may let the floor go: nothing was said, so no hands and no judges
+      if (!(await this.speak(session, speakerId))) continue;
       await this.raiseHands(session, state.debaters.filter((d) => d.id !== speakerId));
-      if (judgesDue(state) && (await this.judge(session))) return "judges";
+      if (judgesDue(state) && (await this.judge(session))) {
+        const stage = nextStage(state);
+        if (!stage) return "judges";
+        this.changeStage(session, stage);
+      }
       this.project(session, false);
     }
+  }
+
+  // A budget is only as good as its prices: a model without one would spend without being counted
+  private assertBudgetPriced(maxCostUsd: number) {
+    if (maxCostUsd <= 0) return;
+    const { moderator, judges } = this.requireCore();
+    const configs = [moderator.config, ...judges.map((judge) => judge.config), ...[...this.debaters.values()].map((d) => d.config)];
+    const models = [...configs.map((config) => config.model.model), debateConfig.handModel.model];
+    const unpriced = [...new Set(models.filter((model) => !hasPrice(model)))];
+    if (unpriced.length > 0) {
+      throw new Error(`Budget di ${usd(maxCostUsd)} attivo ma senza prezzo per ${unpriced.join(", ")}: aggiungilo in src/lib/pricing.ts o metti maxCostUsd a 0`);
+    }
+  }
+
+  private warnBudget(state: DebateState) {
+    if (this.budgetWarned || !budgetSpent(state, BUDGET_WARNING_SHARE)) return;
+    this.budgetWarned = true;
+    this.broadcast(
+      `⚠️ Spesa stimata ${usd(state.usage.total.costUsd)} su un budget di ${usd(state.settings.maxCostUsd)}: al raggiungimento il dibattito si chiude con il sunto.`,
+    );
+  }
+
+  private changeStage(session: DebateSession, stage: DebateStage) {
+    const { moderator } = this.requireCore();
+    const text = stageAnnouncement(stage);
+    session.emit({ type: "stage_changed", stage, text });
+    this.broadcast(`**[${moderator.config.name}]**\n\n${text}`);
   }
 
   private requireCore(): CoreAgents {
@@ -545,7 +669,7 @@ export class DebateManager {
         if (state.queue.some((entry) => entry.debaterId === debater.id)) session.emit({ type: "hand_lowered", debaterId: debater.id });
         continue;
       }
-      const target = decision.target !== debater.id && state.debaters.some((d) => d.id === decision.target) ? decision.target : undefined;
+      const target = decision.target !== debater.id && isParticipant(state, decision.target) ? decision.target : undefined;
       session.emit({ type: "hand_raised", debaterId: debater.id, kind: decision.kind, pitch, ...(target ? { target } : {}) });
       raised.push(`✋ ${debater.name} (${HAND_LABELS[decision.kind]}): ${pitch}`);
     }
@@ -562,7 +686,7 @@ export class DebateManager {
         routingPrompt(state),
         moderatorTurnSchema,
         this.callOptions(session, moderator.config.id, moderator.config.model, "routing", {
-          tools: this.tools(session, debateConfig.roleTools.moderator),
+          tools: this.tools(debateConfig.roleTools.moderator),
         }),
       );
     } catch (err) {
@@ -576,16 +700,18 @@ export class DebateManager {
 
     const choice = chooseSpeaker(state, decision);
     session.emit({ type: "floor_given", ...choice });
-    // A fallback overrides the moderator pick, so its transition would name the wrong person
+    // When the rules override the moderator pick, its transition would name the wrong person
     const transition = decision?.transition.trim();
-    if (transition && choice.source !== "fallback") {
+    if (transition && decision?.nextSpeakerId === choice.speakerId) {
       session.emit({ type: "moderator_message", kind: "transition", text: transition });
       this.broadcast(`**[${moderator.config.name}]**\n\n${transition}`);
     }
     return choice.speakerId;
   }
 
-  private async speak(session: DebateSession, speakerId: string) {
+  /** Returns false when nobody spoke: the user had the floor and let it go. */
+  private async speak(session: DebateSession, speakerId: string): Promise<boolean> {
+    if (speakerId === USER_ID) return this.userSpeaks(session);
     const { state } = session;
     const debater = this.debaters.get(speakerId);
     if (!debater) throw new Error(`No agent for debater ${speakerId}`);
@@ -601,13 +727,11 @@ export class DebateManager {
       agent,
       speechPrompt(state, config, research),
       speechSchema,
-      this.callOptions(session, config.id, config.model, "speech", { tools: this.tools(session, localKeys) }),
+      this.callOptions(session, config.id, config.model, "speech", { tools: this.tools(localKeys) }),
     );
 
     const text = speech.text.trim() || "(intervento vuoto)";
-    const replyTo = [...new Set(speech.replyTo)].filter(
-      (id) => id !== config.id && (id === MODERATOR_ID || state.debaters.some((d) => d.id === id)),
-    );
+    const replyTo = [...new Set(speech.replyTo)].filter((id) => id !== config.id && (id === MODERATOR_ID || isParticipant(state, id)));
     session.emit({ type: "speech", speakerId: config.id, text, replyTo });
     this.broadcast(`**[${config.name}]**\n\n${text}`);
 
@@ -618,6 +742,41 @@ export class DebateManager {
 
     const proposals = this.proposals(session, config.id, speech.proposals);
     if (proposals.length > 0) session.emit({ type: "whiteboard_ops", author: config.id, ops: proposals });
+    return true;
+  }
+
+  private async userSpeaks(session: DebateSession): Promise<boolean> {
+    let text = this.pendingUserText;
+    this.pendingUserText = null;
+    if (!text) {
+      this.broadcast("🎤 La parola a te: scrivi il tuo intervento in chat.");
+      text = await this.waitForUserSpeech();
+    }
+    if (!text) {
+      this.broadcast("Nessun intervento dal committente, si prosegue.");
+      return false;
+    }
+    session.emit({ type: "speech", speakerId: USER_ID, text, replyTo: [] });
+    this.broadcast(`**[${nameOf(session.state, USER_ID)}]**\n\n${text}`);
+    return true;
+  }
+
+  // Resolves with null on timeout or /stop: the loop then moves on or stops
+  private waitForUserSpeech(): Promise<string | null> {
+    const signal = this.abort.signal;
+    if (signal.aborted) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const done = (text: string | null) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        this.deliverUserSpeech = null;
+        resolve(text);
+      };
+      const onAbort = () => done(null);
+      const timer = setTimeout(() => done(null), this.options.userSpeechTimeoutMs ?? USER_SPEECH_TIMEOUT_MS);
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.deliverUserSpeech = done;
+    });
   }
 
   private async research(session: DebateSession, debater: SessionAgent, webKeys: ToolKey[]): Promise<TextResult | null> {
@@ -627,7 +786,7 @@ export class DebateManager {
         agent,
         researchPrompt(session.state, config),
         this.callOptions(session, config.id, config.model, "research", {
-          tools: this.tools(session, webKeys),
+          tools: this.tools(webKeys),
           maxSteps: RESEARCH_STEPS,
         }),
       );
@@ -696,14 +855,14 @@ export class DebateManager {
       session.emit({ type: "judge_verdict", judgeId: judge.config.id, judgeName: judge.config.name, ...verdict });
       verdicts.push(verdict);
     }
-    return debateConcluded(verdicts, judges.length);
+    return stageConcluded(verdicts, judges.length);
   }
 
   private async finish(session: DebateSession, reason: FinishReason) {
     if (session.state.phase === "finished") return;
     const { moderator } = this.requireCore();
     if (session.state.turn > 0) {
-      this.broadcast(`🏁 **Il dibattito si è concluso${reason === "user_stop" ? " anticipatamente" : ""}.** Moderatore elabora sunto...`);
+      this.broadcast(`🏁 **Il dibattito si è concluso${FINISH_NOTES[reason]}.** Il moderatore prepara il sunto.`);
       try {
         // Fresh signal: the summary must run even after /stop aborted the debate
         const result = await generateObject(
@@ -712,8 +871,12 @@ export class DebateManager {
           summarySchema,
           this.callOptions(session, moderator.config.id, moderator.config.model, "summary", { abortSignal: undefined }),
         );
-        session.emit({ type: "moderator_message", kind: "summary", text: result.summary, inShort: result.inShort });
-        this.broadcast(`**[${moderator.config.name} (Sunto Finale)]**\n\n${result.inShort}`);
+        const focalPoints = focalPointsOf(result.focalPoints);
+        session.emit({ type: "moderator_message", kind: "summary", text: result.summary, inShort: result.inShort, focalPoints });
+        const points = focalPoints.map((point, index) => `${index + 1}. ${point}`).join("\n");
+        this.broadcast(
+          `**[${moderator.config.name} (Sunto Finale)]**\n\n${result.inShort}${points ? `\n\n**Punti focali**\n${points}` : ""}`,
+        );
       } catch (err) {
         console.error("[DebateManager] summary failed:", err);
         this.record(session, { type: "error", scope: "summary", message: errorMessage(err) });

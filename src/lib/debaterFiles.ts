@@ -3,6 +3,7 @@ import * as path from "path";
 import type { AgentConfig } from "./debateConfig";
 import { addendum, models } from "./models";
 import { isToolKey, type ToolKey } from "../mcp/index";
+import { RESERVED_IDS } from "./session/events";
 
 export const DEBATERS_DIR = path.join(__dirname, "..", "debaters");
 
@@ -16,8 +17,10 @@ export interface GeneratedDebater {
   tools: ToolKey[];
 }
 
+// "" means unusable: a reserved id would make a debater indistinguishable from the moderator or the user
 export function sanitizeDebaterId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_]/g, "");
+  const clean = id.replace(/[^a-zA-Z0-9_]/g, "");
+  return RESERVED_IDS.includes(clean) ? "" : clean;
 }
 
 export function toToolKeys(values: readonly string[] | undefined, owner: string): ToolKey[] {
@@ -85,8 +88,8 @@ export async function loadDebaterConfigs(dir = DEBATERS_DIR): Promise<AgentConfi
     try {
       const module = await import(path.join(dir, file));
       const config = module.default as AgentConfig | undefined;
-      if (!config?.id) {
-        console.warn(`[debaters] ${file} has no valid default export`);
+      if (!config?.id || RESERVED_IDS.includes(config.id)) {
+        console.warn(`[debaters] ${file} has no valid default export or uses a reserved id`);
         continue;
       }
       if (config.enabled === false) continue;

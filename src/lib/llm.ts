@@ -1,7 +1,21 @@
 import type { Agent, ToolsInput } from "@mastra/core/agent";
 import type { FullOutput } from "@mastra/core/stream";
+import type { ModelMessage } from "ai";
 import type { z } from "zod";
+import { costUsd } from "./pricing";
 import type { LlmPurpose, UsageRecord, WebSource } from "./session/events";
+
+/**
+ * A call inside the debate conversation: append-only blocks shared by every call of the debate, then a tail
+ * that only this call sees. Blocks are cached, so they must never change once sent: anything that varies
+ * between calls (board, counts, task) belongs in the tail.
+ */
+export interface ChainPrompt {
+  blocks: string[];
+  tail: string;
+}
+
+export type Prompt = string | ChainPrompt;
 
 export interface CallOptions {
   agentId: string;
@@ -25,8 +39,27 @@ const TRANSIENT_RETRIES = 4;
 const TRANSIENT_STATUS = new Set([408, 409, 429, 500, 502, 503, 504, 529]);
 const JSON_ONLY_SUFFIX =
   "\n\nIMPORTANT: You must return ONLY a valid JSON object. Do not include any other text or markdown formatting outside the JSON object.";
+// One hour: an agent can stay silent for several minutes between two calls, longer than the 5 minute TTL
+const CACHE_CONTROL = { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } };
+// The API looks for an earlier cache entry at most 20 blocks back from a breakpoint: a fixed checkpoint
+// every 10 blocks keeps the conversation cached when an agent skips many turns
+const CHECKPOINT_BLOCKS = 10;
 
 type GenerateResult = FullOutput<unknown>;
+type Input = string | ModelMessage[];
+
+// Breakpoints on the last block and on the latest checkpoint; other providers ignore the Anthropic options
+export function toInput(prompt: Prompt, suffix: string): Input {
+  if (typeof prompt === "string") return prompt + suffix;
+  const last = prompt.blocks.length - 1;
+  const checkpoint = last - (last % CHECKPOINT_BLOCKS);
+  const blocks = prompt.blocks.map((text, index) =>
+    index === last || index === checkpoint
+      ? { type: "text" as const, text, providerOptions: CACHE_CONTROL }
+      : { type: "text" as const, text },
+  );
+  return [{ role: "user", content: [...blocks, { type: "text", text: prompt.tail + suffix }] }];
+}
 
 function errorChain(err: unknown): any[] {
   const chain: any[] = [];
@@ -88,16 +121,34 @@ function countWebSearches(result: GenerateResult): number {
 
 function report(result: GenerateResult, options: CallOptions, startedAt: number) {
   const usage: any = result.totalUsage ?? result.usage ?? {};
+  const inputTokens = usage.inputTokens ?? 0;
+  const outputTokens = usage.outputTokens ?? 0;
+  const cachedInputTokens = usage.cachedInputTokens ?? 0;
+  const cacheWriteTokens = usage.cacheCreationInputTokens ?? 0;
+  // Without the TTL split every write is priced at the 1 hour rate, the TTL this module sets
+  const cacheWrite5mTokens = Math.min(usage.cacheCreationInputTokens5m ?? 0, cacheWriteTokens);
+  const webSearches = countWebSearches(result);
+  const steps = result.steps?.length ?? 0;
   options.onUsage?.({
     agentId: options.agentId,
     purpose: options.purpose,
     model: options.model,
-    inputTokens: usage.inputTokens ?? 0,
-    outputTokens: usage.outputTokens ?? 0,
-    cachedInputTokens: usage.cachedInputTokens ?? 0,
+    inputTokens,
+    outputTokens,
+    cachedInputTokens,
+    cacheWriteTokens,
     reasoningTokens: usage.reasoningTokens ?? 0,
-    webSearches: countWebSearches(result),
-    steps: result.steps?.length ?? 0,
+    webSearches,
+    costUsd: costUsd(options.model, {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens: cachedInputTokens,
+      cacheWrite5mTokens,
+      cacheWrite1hTokens: cacheWriteTokens - cacheWrite5mTokens,
+      webSearches,
+      steps,
+    }),
+    steps,
     ms: Date.now() - startedAt,
   });
   for (const step of result.steps ?? []) {
@@ -115,7 +166,7 @@ function collectSources(result: GenerateResult): WebSource[] {
   return [...seen.values()];
 }
 
-async function call(agent: Agent, prompt: string, options: CallOptions, structured?: z.ZodType): Promise<GenerateResult> {
+async function call(agent: Agent, prompt: Input, options: CallOptions, structured?: z.ZodType): Promise<GenerateResult> {
   const startedAt = Date.now();
   const execution = {
     ...(options.tools ? { toolsets: { debate: options.tools } } : {}),
@@ -147,8 +198,8 @@ async function withTransientRetry<T>(options: CallOptions, run: () => Promise<T>
   }
 }
 
-export async function generateObject<T>(agent: Agent, prompt: string, schema: z.ZodType<T>, options: CallOptions): Promise<T> {
-  const finalPrompt = prompt + JSON_ONLY_SUFFIX;
+export async function generateObject<T>(agent: Agent, prompt: Prompt, schema: z.ZodType<T>, options: CallOptions): Promise<T> {
+  const finalPrompt = toInput(prompt, JSON_ONLY_SUFFIX);
   let lastError: unknown;
   for (let attempt = 0; attempt <= SCHEMA_RETRIES; attempt++) {
     try {
@@ -172,7 +223,8 @@ export async function generateObject<T>(agent: Agent, prompt: string, schema: z.
   return schema.parse(JSON.parse(match[0]));
 }
 
-export async function generateText(agent: Agent, prompt: string, options: CallOptions): Promise<TextResult> {
-  const result = await withTransientRetry(options, () => call(agent, prompt, options));
+export async function generateText(agent: Agent, prompt: Prompt, options: CallOptions): Promise<TextResult> {
+  const input = toInput(prompt, "");
+  const result = await withTransientRetry(options, () => call(agent, input, options));
   return { text: result.text ?? "", sources: collectSources(result) };
 }

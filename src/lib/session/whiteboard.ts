@@ -1,4 +1,4 @@
-export const BOARD_ITEM_KINDS = ["decision", "question", "hypothesis", "source", "note"] as const;
+export const BOARD_ITEM_KINDS = ["decision", "idea", "question", "hypothesis", "source", "note"] as const;
 export type BoardItemKind = (typeof BOARD_ITEM_KINDS)[number];
 
 export const BOARD_OPS = ["propose", "add", "accept", "reject", "resolve", "edit", "link"] as const;
@@ -180,6 +180,7 @@ export function applyBoardOps(board: Board, ops: BoardOp[], ctx: BoardOpContext)
 
 const KIND_LABELS: Record<BoardItemKind, string> = {
   decision: "Decisioni",
+  idea: "Idee",
   question: "Domande",
   hypothesis: "Ipotesi",
   source: "Fonti",

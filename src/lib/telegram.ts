@@ -1,9 +1,32 @@
 import { Telegraf } from "telegraf";
-import { DebateManager } from "./debateManager";
+import { DebateManager, type UserHandResult } from "./debateManager";
+import { MODE_LABELS, STAGE_LABELS, type DebateMode } from "./session/events";
+import { spendLine } from "./session/projections";
 import { nameOf } from "./session/state";
 
-const MISSING_TOPIC_REPLY =
-  "Su quale tema vuoi il dibattito? Scrivi /debate seguito dall'argomento, per esempio:\n/debate Creare una piattaforma SaaS per dentisti";
+const missingTopicReply = (command: string) =>
+  `Su quale tema? Scrivi /${command} seguito dall'argomento, per esempio:\n/${command} Creare una piattaforma SaaS per dentisti`;
+
+const START_COMMANDS: readonly { command: string; mode: DebateMode }[] = [
+  { command: "debate", mode: "structured" },
+  { command: "brainstorm", mode: "wild" },
+];
+
+const HELP_TEXT = `Comandi:
+/debate <tema>: dibattito strutturato (esplorazione, critica, decisione)
+/brainstorm <tema>: brainstorming libero, senza freni
+/mano [testo]: chiedi la parola; con il testo, è il tuo intervento quando il moderatore te la dà
+/status: avanzamento, fase e spesa stimata
+/whiteboard: la lavagna condivisa
+/stop: chiude il dibattito con il sunto
+/resume: riprende l'ultimo dibattito interrotto da un riavvio`;
+
+// "submitted" has no reply: the debate echoes the speech in the chat
+const HAND_REPLIES: Record<Exclude<UserHandResult, "submitted">, string> = {
+  queued: "✋ Mano alzata: il moderatore ti darà la parola appena chiude l'intervento in corso.",
+  has_floor: "Hai già la parola: scrivi il tuo intervento in chat.",
+  not_running: "Nessun dibattito in corso: la mano si alza solo durante un dibattito.",
+};
 
 export function setupTelegramBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -31,10 +54,13 @@ export function setupTelegramBot() {
     const lines = [`Stato: ${manager.status}`, `Argomento: ${manager.topic ?? "nessuno"}`, `Interventi: ${manager.turnCount}`];
     const state = manager.state;
     if (state) {
+      lines.push(`Modalità: ${MODE_LABELS[state.mode]}, fase attuale: ${STAGE_LABELS[state.stage]}`);
+      lines.push(`Spesa stimata: ${spendLine(state)}`);
+      if (manager.awaitingUserSpeech) lines.push("Hai la parola: scrivi il tuo intervento in chat.");
       const queue = state.queue.map((hand) => `- ${nameOf(state, hand.debaterId)} (${hand.kind}): ${hand.pitch}`);
       lines.push(`Mani alzate: ${queue.length > 0 ? `\n${queue.join("\n")}` : "nessuna"}`);
-      const { inputTokens, outputTokens, webSearches, calls } = state.usage.total;
-      lines.push(`Chiamate LLM: ${calls}, token in ${inputTokens}, token out ${outputTokens}, ricerche web ${webSearches}`);
+      const { inputTokens, cachedInputTokens, outputTokens, webSearches, calls } = state.usage.total;
+      lines.push(`Chiamate LLM: ${calls}, token in ${inputTokens} (${cachedInputTokens} da cache), token out ${outputTokens}, ricerche web ${webSearches}`);
     }
     return lines.join("\n");
   };
@@ -153,30 +179,32 @@ export function setupTelegramBot() {
   // is handled, so a long await here would delay /stop until the step is over
   const logError = (scope: string) => (err: unknown) => console.error(`[Telegram] Errore in ${scope}:`, err);
 
-  bot.command(["start", "help"], (ctx) =>
-    ctx.reply(
-      "Benvenuto! Usa /debate <argomento>, /stop, /status, /whiteboard o /resume (riprende l'ultimo dibattito interrotto da un riavvio).",
-    ),
-  );
-  bot.command("debate", async (ctx) => {
-    console.log("[Telegram] Comando /debate ricevuto, chat.id:", ctx.chat.id);
-    if (manager.isActive)
-      return ctx.reply(
-        "Dibattito in corso o in fase di selezione. Usa /stop prima.",
-      );
-    // payload also covers /debate@BotName and multi-line topics
-    const topic = ctx.payload.trim();
-    if (!topic) return ctx.reply(MISSING_TOPIC_REPLY);
-    activeChatId = ctx.chat.id;
-    console.log("[Telegram] activeChatId impostato a:", activeChatId, "topic:", topic);
-    try {
-      await manager.startDebate(topic);
-    } catch (err) {
-      console.error("[Telegram] Errore in /debate:", err);
-      ctx.reply(
-        "Errore interno durante l'avvio del dibattito. Controlla i log del server.",
-      );
-    }
+  bot.command(["start", "help"], (ctx) => ctx.reply(`Benvenuto!\n\n${HELP_TEXT}`));
+  for (const { command, mode } of START_COMMANDS) {
+    bot.command(command, async (ctx) => {
+      console.log(`[Telegram] Comando /${command} ricevuto, chat.id:`, ctx.chat.id);
+      if (manager.isActive)
+        return ctx.reply(
+          "Dibattito in corso o in fase di selezione. Usa /stop prima.",
+        );
+      // payload also covers /debate@BotName and multi-line topics
+      const topic = ctx.payload.trim();
+      if (!topic) return ctx.reply(missingTopicReply(command));
+      activeChatId = ctx.chat.id;
+      console.log("[Telegram] activeChatId impostato a:", activeChatId, "topic:", topic, "mode:", mode);
+      try {
+        await manager.startDebate(topic, mode);
+      } catch (err) {
+        console.error(`[Telegram] Errore in /${command}:`, err);
+        ctx.reply(
+          "Errore interno durante l'avvio del dibattito. Controlla i log del server.",
+        );
+      }
+    });
+  }
+  bot.command("mano", (ctx) => {
+    const result = manager.raiseUserHand(ctx.payload);
+    if (result !== "submitted") return ctx.reply(HAND_REPLIES[result]);
   });
   bot.command("stop", async (ctx) => {
     if (!manager.isActive) return ctx.reply("Nessun dibattito in corso.");
@@ -206,8 +234,10 @@ export function setupTelegramBot() {
     if (ctx.message.text.startsWith("/")) return;
 
     if (manager.status === "RUNNING") {
+      // While the user has the floor, plain text is their speech
+      if (manager.submitUserSpeech(ctx.message.text)) return;
       return ctx.reply(
-        "Un dibattito è già in corso. Usa /stop se vuoi cambiarne il tema o /status per vederne l'avanzamento.",
+        "Un dibattito è in corso. Per intervenire usa /mano (anche con il testo: /mano <intervento>), /status per l'avanzamento, /stop per chiuderlo.",
       );
     }
 

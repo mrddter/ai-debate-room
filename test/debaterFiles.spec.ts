@@ -10,6 +10,7 @@ import {
   writeDebaterModule,
   type GeneratedDebater,
 } from "../src/lib/debaterFiles";
+import { debaterSelectionSchema } from "../src/lib/schemas";
 import { LIB_DIR, tempDir } from "./helpers/fixtures";
 
 // Model-written text with everything that broke or could break the old string-concatenated template
@@ -45,6 +46,22 @@ describe("generated debater modules", () => {
     assert.equal(writeDebaterModule({ ...hostile, id: "evilid", name: "Altro" }, dir), null);
     assert.equal(writeDebaterModule({ ...hostile, id: "!!!" }, dir), null);
     assert.equal(sanitizeDebaterId("a-b_c.1"), "ab_c1");
+    // A debater named like the moderator or the user would hijack their messages and their floor
+    assert.deepEqual(["moderator", "us-er", "user"].map(sanitizeDebaterId), ["", "", ""]);
+    assert.equal(writeDebaterModule({ ...hostile, id: "user" }, dir), null);
+  });
+
+  // Regression: the moderator wrote "web_search", the key was dropped and the new role lost web research
+  it("accepts only known tool keys for generated debaters", () => {
+    const generated = (tools: string[]) =>
+      debaterSelectionSchema.safeParse({ debaters: [], newDebaters: [{ ...hostile, reason: "serve", tools }] }).success;
+    assert.equal(generated(["webSearch", "webFetch", "calculator"]), true);
+    assert.equal(generated(["web_search"]), false);
+  });
+
+  it("refuses to load a debater file that uses a reserved id", async () => {
+    fs.writeFileSync(path.join(dir, "user.ts"), renderDebaterModule({ ...hostile, id: "user" }, LIB_DIR));
+    assert.deepEqual(await loadDebaterConfigs(dir), []);
   });
 
   it("drops unknown tools and disabled debaters when loading", async () => {

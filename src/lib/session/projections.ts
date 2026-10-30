@@ -1,15 +1,24 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { DebateEvent, FinishReason } from "./events";
+import { MODE_LABELS, MODERATOR_ID, STAGE_LABELS, USER_ID, type DebateEvent, type FinishReason } from "./events";
 import { latestVerdicts, nameOf, type DebateState, type UsageTotals } from "./state";
 import { renderBoard } from "./whiteboard";
 
 const FINISH_LABELS: Record<FinishReason, string> = {
   judges: "voto dei giudici",
   max_turns: "limite massimo di turni",
+  budget: "budget di spesa raggiunto",
   user_stop: "interruzione dell'utente",
   error: "errore",
 };
+
+export const usd = (value: number) => `$${value.toFixed(2)}`;
+
+// Estimated from src/lib/pricing.ts, not read from the invoice
+export function spendLine(state: DebateState): string {
+  const cap = state.settings.maxCostUsd;
+  return `${usd(state.usage.total.costUsd)}${cap > 0 ? ` su ${usd(cap)} di budget` : " (nessun budget)"}`;
+}
 
 function formatDuration(state: DebateState): string {
   if (!state.startedAt) return "N/A";
@@ -19,15 +28,19 @@ function formatDuration(state: DebateState): string {
 }
 
 function usageRow(label: string, usage: UsageTotals): string {
-  return `| ${label} | ${usage.calls} | ${usage.inputTokens} | ${usage.cachedInputTokens} | ${usage.outputTokens} | ${usage.webSearches} | ${Math.round(usage.ms / 1000)} |`;
+  return `| ${label} | ${usage.calls} | ${usage.inputTokens} | ${usage.cachedInputTokens} | ${usage.cacheWriteTokens} | ${usage.outputTokens} | ${usage.webSearches} | ${usage.costUsd.toFixed(3)} | ${Math.round(usage.ms / 1000)} |`;
 }
 
 export function renderMetrics(state: DebateState): string {
-  const header = "| Voce | Chiamate | Input tok | di cui cache | Output tok | Ricerche web | Secondi |\n|---|---|---|---|---|---|---|";
+  const header =
+    "| Voce | Chiamate | Input tok | letti da cache | scritti in cache | Output tok | Ricerche web | Costo $ | Secondi |\n|---|---|---|---|---|---|---|---|---|";
   const byPurpose = Object.entries(state.usage.byPurpose).map(([purpose, usage]) => usageRow(purpose, usage));
   const byAgent = Object.entries(state.usage.byAgent).map(([agentId, usage]) => usageRow(nameOf(state, agentId), usage));
   return [
     `- **Durata**: ${formatDuration(state)}`,
+    `- **Modalità**: ${MODE_LABELS[state.mode]}`,
+    `- **Fase raggiunta**: ${STAGE_LABELS[state.stage]}`,
+    `- **Spesa stimata**: ${spendLine(state)}`,
     `- **Debaters**: ${state.debaters.length}`,
     `- **Interventi**: ${state.turn}`,
     `- **Messaggi totali**: ${state.messages.length}`,
@@ -70,8 +83,9 @@ export function renderSummary(state: DebateState): string {
   const verdicts = latestVerdicts(state)
     .map((verdict) => `- **${verdict.judgeName}**: ${verdict.isReady ? "pronto" : "non pronto"}, maturità ${verdict.maturityDegree}/5. ${verdict.reason}`)
     .join("\n");
+  const points = (state.summary?.focalPoints ?? []).map((point, index) => `${index + 1}. ${point}`).join("\n");
   const summary = state.summary
-    ? `## In breve\n${state.summary.inShort}\n\n## Sintesi del dibattito\n${state.summary.text}`
+    ? `## In breve\n${state.summary.inShort}\n\n## Punti focali\n${points || "Nessuno."}\n\n## Sintesi del dibattito\n${state.summary.text}`
     : "## Sintesi del dibattito\nNessun sunto generato.";
   return `# Sunto finale\n\n## Tema\n${state.topic}\n\n${summary}\n\n## Ultimo voto dei giudici\n${verdicts || "Nessun voto."}\n\n## Metriche\n${renderMetrics(state)}\n`;
 }
@@ -89,7 +103,7 @@ function embedJson(value: unknown): string {
 }
 
 export function renderViewer(state: DebateState, events: DebateEvent[]): string {
-  const names = Object.fromEntries(state.debaters.map((debater) => [debater.id, debater.name]));
+  const names = Object.fromEntries([...state.debaters.map((d) => d.id), MODERATOR_ID, USER_ID].map((id) => [id, nameOf(state, id)]));
   const data = {
     topic: state.topic,
     debateId: state.debateId,
@@ -129,15 +143,19 @@ label{margin-right:10px;font-size:12px;white-space:nowrap}
 <script type="application/json" id="data">${embedJson(data)}</script>
 <script>
 const data = JSON.parse(document.getElementById("data").textContent);
-const name = (id) => id === "moderator" ? "Moderatore" : (data.names[id] || id);
+const name = (id) => data.names[id] || id;
+const numbered = (points) => (points || []).map((p, i) => (i + 1) + ". " + p).join("\\n");
 document.getElementById("title").textContent = data.topic + (data.finishReason ? " (fine: " + data.finishReason + ")" : " (in corso)");
 document.getElementById("board").textContent = data.board;
-document.getElementById("summary").textContent = data.summary ? data.summary.inShort + "\\n\\n" + data.summary.text : "Nessun sunto.";
+document.getElementById("summary").textContent = data.summary
+  ? [data.summary.inShort, numbered(data.summary.focalPoints), data.summary.text].filter(Boolean).join("\\n\\n")
+  : "Nessun sunto.";
 document.getElementById("metrics").textContent = data.metrics;
 const describe = {
-  debate_started: (e) => "Tema: " + e.topic,
+  debate_started: (e) => "Tema: " + e.topic + " (" + e.mode + ")",
   debaters_selected: (e) => "Partecipanti: " + e.debaters.map((d) => d.name).join(", "),
-  moderator_message: (e) => "[" + e.kind + "] " + e.text + (e.inShort ? "\\n\\nIn breve: " + e.inShort : ""),
+  moderator_message: (e) => "[" + e.kind + "] " + e.text + (e.inShort ? "\\n\\nIn breve: " + e.inShort : "") + (e.focalPoints ? "\\n\\nPunti focali:\\n" + numbered(e.focalPoints) : ""),
+  stage_changed: (e) => "Fase: " + e.stage + "\\n" + e.text,
   floor_given: (e) => "Parola a " + name(e.speakerId) + " (" + e.source + "): " + e.reason,
   speech: (e) => name(e.speakerId) + (e.replyTo.length ? " → " + e.replyTo.map(name).join(", ") : "") + "\\n" + e.text,
   notebook_updated: (e) => "Taccuino di " + name(e.debaterId) + ":\\n" + e.notebook,
@@ -147,7 +165,7 @@ const describe = {
   research_done: (e) => "Ricerca di " + name(e.debaterId) + ":\\n" + e.notes + "\\n" + e.sources.map((s) => s.title + " " + s.url).join("\\n"),
   tool_call: (e) => name(e.agentId) + " → " + e.tool + " " + JSON.stringify(e.input),
   judge_verdict: (e) => e.judgeName + ": " + (e.isReady ? "pronto" : "non pronto") + ", maturità " + e.maturityDegree + "/5. " + e.reason,
-  llm_usage: (e) => name(e.agentId) + " " + e.purpose + " " + e.model + ": in " + e.inputTokens + ", out " + e.outputTokens + ", " + e.ms + "ms",
+  llm_usage: (e) => name(e.agentId) + " " + e.purpose + " " + e.model + ": in " + e.inputTokens + " (cache " + e.cachedInputTokens + "/" + e.cacheWriteTokens + "), out " + e.outputTokens + ", $" + e.costUsd.toFixed(4) + ", " + e.ms + "ms",
   error: (e) => e.scope + ": " + e.message,
   debate_finished: (e) => "Fine: " + e.reason,
 };

@@ -23,10 +23,11 @@ export interface AgentConfig {
 export type JudgeOutput = z.infer<typeof judgeOutputSchema>;
 
 export interface DebateSettings {
+  // Safety cap on speeches
   maxTurns: number;
-  // Most recent messages every debater sees verbatim; older ones via notebook, board and searchTranscript
-  contextWindow: number;
-  // Judges vote every N speeches; 0 means once per round (number of debaters)
+  // Spend cap per debate in USD, estimated from src/lib/pricing.ts; 0 disables it
+  maxCostUsd: number;
+  // Judges vote every N speeches inside a stage; 0 means once per round (number of debaters)
   judgeEvery: number;
   roleTools: Record<DebateRole, ToolKey[]>;
   handModel: ModelConfig;
@@ -35,12 +36,15 @@ export interface DebateSettings {
 }
 
 export const debateConfig: DebateSettings = {
-  maxTurns: 500,
-  contextWindow: 8,
+  // Just above what the budget buys, so the budget is the real stop and this only bounds a run with the budget off
+  maxTurns: 120,
+  // Measured on Opus debaters: $0.32 fixed (selection, summary), about $0.16 per speech, and the transcript grows about
+  // 1K tokens per speech, so cache reads add about $0.0003 x N² over N speeches: $20 buys about 100 speeches
+  maxCostUsd: 20,
   judgeEvery: 0,
   roleTools: {
-    moderator: ["searchTranscript"],
-    debater: ["calculator", "searchTranscript"],
+    moderator: [],
+    debater: ["calculator"],
     judge: [],
   },
   handModel: models.hand,

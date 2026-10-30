@@ -1,23 +1,93 @@
 import type { AgentConfig } from "./debateConfig";
-import type { FinishReason } from "./session/events";
-import { addressedTo, latestVerdicts, nameOf, type DebateState, type TranscriptMessage } from "./session/state";
+import {
+  MODE_LABELS,
+  MODE_STAGES,
+  MODERATOR_ID,
+  STAGE_LABELS,
+  USER_ID,
+  type DebateMode,
+  type DebateStage,
+  type FinishReason,
+} from "./session/events";
+import { latestVerdicts, nameOf, type DebateState, type TranscriptMessage } from "./session/state";
 import { renderBoard } from "./session/whiteboard";
-import type { TextResult } from "./llm";
+import type { ChainPrompt, TextResult } from "./llm";
 
 export type SelectionMode = { kind: "auto" } | { kind: "smart" } | { kind: "direct"; input: string } | { kind: "feedback"; input: string };
 
-export function formatMessages(state: DebateState, messages: TranscriptMessage[]): string {
-  if (messages.length === 0) return "Nessun messaggio.";
-  return messages
-    .map((message) => {
-      const replyTo = message.replyTo.length > 0 ? ` (a ${message.replyTo.map((id) => nameOf(state, id)).join(", ")})` : "";
-      return `[t${message.turn}] ${nameOf(state, message.speakerId)}${replyTo}: ${message.text}`;
-    })
-    .join("\n\n");
+interface StageRules {
+  debater: string;
+  moderator: string;
+  judge: string;
+}
+
+const STAGE_RULES: Record<DebateStage, StageRules> = {
+  explore: {
+    debater:
+      "Allarga il quadro: porta opzioni, ipotesi, dati e domande. Puoi segnalare un rischio, ma non bocciare un'idea prima che sia definita.",
+    moderator:
+      "Fai emergere opzioni e ipotesi diverse, dai la parola a chi porta punti nuovi e rimanda le bocciature alla fase di critica.",
+    judge:
+      "La fase è completa quando le opzioni principali e le ipotesi chiave sono sul tavolo e i nuovi interventi non aggiungono alternative.",
+  },
+  critique: {
+    debater:
+      "Metti alla prova le opzioni emerse: cerca punti deboli, numeri che non tornano e rischi concreti, e proponi come correggerli.",
+    moderator:
+      "Fai stressare le opzioni una alla volta, chiama chi può smontarle o difenderle con dati e scarta in lavagna ciò che non regge.",
+    judge: "La fase è completa quando ogni opzione rilevante è stata messa alla prova e restano poche alternative difendibili.",
+  },
+  decide: {
+    debater:
+      "Converge: indica cosa scegliere, a quali condizioni e con quali primi passi. Niente idee nuove, salvo per sbloccare una scelta.",
+    moderator: "Porta il tavolo a scelte esplicite, registra le decisioni in lavagna e chiudi le domande aperte.",
+    judge:
+      "La fase è completa quando c'è una decisione chiara con condizioni e prossimi passi, oppure è chiaro perché non si può decidere.",
+  },
+  brainstorm: {
+    debater:
+      "Nessun freno: porta idee audaci, anche controintuitive, e costruisci su quelle degli altri ('sì, e' invece di 'no, ma'). In questa modalità la regola di distruggere le idee e di essere cinico non vale: non bocciare e non criticare. Passa la parola solo se non hai davvero un'idea nuova.",
+    moderator:
+      "Punta al maggior numero di idee distinte: dai la parola a chi porta idee nuove, scoraggia le critiche, registra in lavagna ogni idea distinta (tipo idea). Qui non serve tenere il focus su una sola idea alla volta.",
+    judge:
+      "Il brainstorming è completo quando il tavolo ha prodotto un ventaglio ampio di idee distinte e gli ultimi interventi ripetono o variano idee già emerse.",
+  },
+};
+
+function stageLine(state: DebateState, role: keyof StageRules): string {
+  return `FASE ATTUALE: ${STAGE_LABELS[state.stage]}. ${STAGE_RULES[state.stage][role]}`;
+}
+
+// Static on purpose: a stage change must not depend on a model call
+export function stageAnnouncement(stage: DebateStage): string {
+  return `Si passa alla fase di ${STAGE_LABELS[stage]}. ${STAGE_RULES[stage].debater}`;
+}
+
+function formatMessage(state: DebateState, message: TranscriptMessage): string {
+  const replyTo = message.replyTo.length > 0 ? ` (a ${message.replyTo.map((id) => nameOf(state, id)).join(", ")})` : "";
+  return `[t${message.turn}] ${nameOf(state, message.speakerId)}${replyTo}: ${message.text}`;
+}
+
+// Fixed once the debaters are selected: it opens every cached conversation
+function conversationHeader(state: DebateState): string {
+  const participants = state.debaters.map((debater) => `- ${debater.id}: ${debater.name}`).join("\n");
+  return `DIBATTITO
+Tema: "${state.topic}"
+Modalità: ${MODE_LABELS[state.mode]}
+Partecipanti:
+${participants}
+- ${USER_ID}: ${nameOf(state, USER_ID)} (ha commissionato il dibattito; interviene solo quando chiede la parola)
+- ${MODERATOR_ID}: ${nameOf(state, MODERATOR_ID)}
+
+Segue la trascrizione completa, un messaggio per blocco nel formato [tN] Nome (a destinatari): testo, dove N è il numero di interventi completati.`;
+}
+
+/** The whole debate as append-only blocks plus the tail of this call: every agent sees the same transcript. */
+function conversation(state: DebateState, tail: string): ChainPrompt {
+  return { blocks: [conversationHeader(state), ...state.messages.map((message) => formatMessage(state, message))], tail };
 }
 
 const board = (state: DebateState) => renderBoard(state.board, (id) => nameOf(state, id));
-const recent = (state: DebateState, size = state.settings.contextWindow) => formatMessages(state, state.messages.slice(-size));
 const roster = (state: DebateState) =>
   state.debaters.map((debater) => `- ${debater.id}: ${debater.name} (${state.spokenCount[debater.id] ?? 0} interventi)`).join("\n");
 
@@ -96,17 +166,19 @@ Rispondi in formato JSON con un oggetto che contiene la chiave "debaters", il cu
 
 export function introPrompt(state: DebateState): string {
   return `Il dibattito sta per iniziare. Tema: "${state.topic}".
+Modalità: ${MODE_LABELS[state.mode]}.
+${stageLine(state, "moderator")}
 Partecipanti:
 ${roster(state)}
 
 Introduci brevemente il tema (max 100 parole), indica il primo nodo da sciogliere e invita chi ha qualcosa di pertinente ad alzare la mano. Rispondi solo con il testo dell'introduzione.`;
 }
 
-export function handPrompt(state: DebateState, debater: AgentConfig): string {
+export function handPrompt(state: DebateState, debater: AgentConfig): ChainPrompt {
   const queue = state.queue.map((hand) => `- ${nameOf(state, hand.debaterId)} [${hand.kind}]: ${hand.pitch}`).join("\n");
-  return `Tema del dibattito: "${state.topic}".
-
-PARTECIPANTE CHE RAPPRESENTI:
+  return conversation(
+    state,
+    `PARTECIPANTE CHE RAPPRESENTI:
 ${persona(debater)}
 
 IL SUO TACCUINO:
@@ -115,17 +187,17 @@ ${state.notebooks[debater.id] || "vuoto"}
 LAVAGNA:
 ${board(state)}
 
-ULTIMI MESSAGGI:
-${recent(state, 3)}
-
 MANI GIÀ ALZATE:
 ${queue || "nessuna"}
 
+${stageLine(state, "debater")}
+
 Deve alzare la mano adesso? Alzala solo per una replica a un punto preciso, un punto nuovo, una domanda che sblocca o un dato concreto, e non se ripete ciò che è in lavagna o nelle mani già alzate.
-Partecipanti (per target): ${state.debaters.map((d) => d.id).join(", ")}.`;
+ID validi per target: ${[...state.debaters.map((d) => d.id), USER_ID].join(", ")}.`,
+  );
 }
 
-export function routingPrompt(state: DebateState): string {
+export function routingPrompt(state: DebateState): ChainPrompt {
   const pending = state.board.items
     .filter((item) => item.status === "proposed")
     .map((item) => `- [${item.id}] (${item.kind}) ${item.text}${item.url ? ` ${item.url}` : ""} · da ${nameOf(state, item.author)}`)
@@ -137,9 +209,14 @@ export function routingPrompt(state: DebateState): string {
     })
     .join("\n");
   const last = state.lastSpeakerId ? `${state.lastSpeakerId} (${nameOf(state, state.lastSpeakerId)})` : "nessuno";
+  const userWaiting = state.queue.some((hand) => hand.debaterId === USER_ID)
+    ? `\nIL COMMITTENTE HA CHIESTO LA PAROLA: dagliela ora (nextSpeakerId "${USER_ID}", source "queue") con una transizione rivolta a lui.\n`
+    : "";
 
-  return `Il tema è: "${state.topic}". Interventi finora: ${state.turn}.
-Sei il moderatore e il custode della lavagna.
+  return conversation(
+    state,
+    `Sei il moderatore e il custode della lavagna. Interventi finora: ${state.turn}.
+${stageLine(state, "moderator")}
 
 LAVAGNA:
 ${board(state)}
@@ -150,99 +227,109 @@ ${pending || "nessuna"}
 CODA DELLE MANI ALZATE (in ordine di arrivo):
 ${queue || "nessuna mano alzata"}
 
-ULTIMI MESSAGGI:
-${recent(state)}
-
 PARTECIPANTI:
 ${roster(state)}
-
+${userWaiting}
 Fai due cose:
 1) Lavagna: per ogni proposta in attesa decidi "accept" o "reject" (motivazione in "text"). Usa "add" per registrare decisioni o domande aperte emerse dal tavolo, "resolve" per chiudere una domanda con l'esito, "link" per collegare elementi, "edit" per correggere un testo. Non duplicare elementi già presenti.
-2) Parola: scegli chi parla ora. Preferisci la coda (source "queue") quando una mano alzata porta avanti il punto aperto; chiama direttamente (source "called") chi serve quando nessuno in coda copre il punto o qualcuno deve una replica. Non dare la parola a chi ha appena parlato: ${last}.`;
+2) Parola: scegli chi parla ora. Preferisci la coda (source "queue") quando una mano alzata porta avanti il punto aperto; chiama direttamente (source "called") chi serve quando nessuno in coda copre il punto o qualcuno deve una replica. Non dare la parola a chi ha appena parlato: ${last}.`,
+  );
 }
 
-export function researchPrompt(state: DebateState, debater: AgentConfig): string {
-  return `Il tema è: "${state.topic}". Sei ${debater.name} e il moderatore ti ha appena dato la parola.
+export function researchPrompt(state: DebateState, debater: AgentConfig): ChainPrompt {
+  return conversation(
+    state,
+    `Sei ${debater.name} (ID ${debater.id}) e il moderatore ti ha appena dato la parola.
+${stageLine(state, "debater")}
 
 LAVAGNA:
 ${board(state)}
 
-ULTIMI MESSAGGI:
-${recent(state, 4)}
-
 Prima di intervenire puoi verificare dati attuali sul web. Cerca solo se il tuo intervento dipende da dati, prezzi, concorrenti o fatti recenti.
-Scrivi note sintetiche (max 150 parole) con i dati trovati e l'URL di ogni fonte. Se non serve cercare, rispondi solo: NESSUNA RICERCA.`;
+Scrivi note sintetiche (max 150 parole) con i dati trovati e l'URL di ogni fonte. Se non serve cercare, rispondi solo: NESSUNA RICERCA.`,
+  );
 }
 
-export function speechPrompt(state: DebateState, debater: AgentConfig, research: TextResult | null): string {
-  const addressed = addressedTo(state, debater.id, state.settings.contextWindow);
+export function speechPrompt(state: DebateState, debater: AgentConfig, research: TextResult | null): ChainPrompt {
   const sources = research?.sources.map((source) => `- ${source.title}: ${source.url}`).join("\n");
   const researchBlock = research
     ? `\nLA TUA RICERCA WEB:\n${research.text}\n${sources ? `Fonti citabili:\n${sources}\n` : ""}`
     : "";
 
-  return `Il tema è: "${state.topic}".
-Sei ${debater.name} (ID ${debater.id}).
+  return conversation(
+    state,
+    `Sei ${debater.name} (ID ${debater.id}).
+${stageLine(state, "debater")}
 
 LAVAGNA (stato condiviso, ID tra parentesi quadre):
 ${board(state)}
 
 IL TUO TACCUINO PRIVATO:
 ${state.notebooks[debater.id] || "vuoto"}
-${addressed.length > 0 ? `\nMESSAGGI MENO RECENTI RIVOLTI A TE:\n${formatMessages(state, addressed)}\n` : ""}
-ULTIMI MESSAGGI:
-${recent(state)}
 ${researchBlock}
 PARTECIPANTI:
 ${roster(state)}
 
-È il tuo turno. Rispondi mantenendo fermamente il tuo ruolo.
-IMPORTANTE PER LA CREAZIONE DI VALORE: Cerca di costruire sul discorso precedente tenendo conto di cosa c'è sulla lavagna. Se l'idea o il quadro del problema è ancora nelle fasi iniziali, abbi cura di delinearlo in modo solido e incrementale senza porre freni inutili o pretese premature che esulano dalla fase di validazione/scoperta in corso.
+È il tuo turno. Rispondi mantenendo fermamente il tuo ruolo, costruendo sul discorso precedente e su ciò che è in lavagna, nel rispetto della fase attuale.
 Campi da compilare:
 - "text": il tuo intervento.
-- "replyTo": ID dei partecipanti a cui rispondi direttamente.
+- "replyTo": ID dei partecipanti a cui rispondi direttamente (anche "${MODERATOR_ID}" o "${USER_ID}").
 - "notebook": il tuo taccuino aggiornato (posizioni, impegni, obiezioni aperte), sostituisce il precedente.
-- "proposals": massimo 3 proposte per la lavagna; le fonti ("source") solo con un URL preso dalla tua ricerca web.`;
+- "proposals": massimo 3 proposte per la lavagna; le fonti ("source") solo con un URL preso dalla tua ricerca web.`,
+  );
 }
 
-export function judgePrompt(state: DebateState): string {
-  return `Tema: "${state.topic}". Interventi finora: ${state.turn}.
+export function judgePrompt(state: DebateState): ChainPrompt {
+  const stages = MODE_STAGES[state.mode];
+  const position = stages.indexOf(state.stage);
+  const next = stages[position + 1];
+  const outcome = next
+    ? `Se la fase è conclusa il tavolo passa alla fase di ${STAGE_LABELS[next]}.`
+    : "È l'ultima fase: se è conclusa il dibattito termina.";
+  return conversation(
+    state,
+    `Sei un giudice del dibattito. Interventi finora: ${state.turn}.
+FASE DA VALUTARE: ${STAGE_LABELS[state.stage]} (${position + 1} di ${stages.length}). ${STAGE_RULES[state.stage].judge}
 
 LAVAGNA (stato ratificato dal moderatore):
 ${board(state)}
 
-ULTIMI MESSAGGI:
-${recent(state, state.settings.contextWindow * 2)}
+Valuta se la fase attuale è giunta a conclusione tenendo conto del tuo specifico ruolo di giudice. ${outcome} Le regole generali sono:
+1. Obiettivo raggiunto: l'obiettivo della fase è raggiunto (isReady: true).
+2. Loop: i partecipanti girano in tondo ripetendosi senza progredire da troppo tempo (isReady: true, con una reason adeguata).
 
-Valuta se il dibattito è giunto a una conclusione tenendo conto del tuo specifico ruolo di giudice. Le regole generali per terminare sono:
-1. Obiettivo Raggiunto: L'argomento è stato analizzato a fondo ed è stato raggiunto un esito o una conclusione chiara. (isReady: true).
-2. Tempo Spreco/Loop: I partecipanti girano in tondo ripetendosi senza progredire da troppo tempo (isReady: true, indicare reason adeguata).
-
-Se il dibattito sta procedendo proficuamente ma non ha ancora raggiunto l'obiettivo, rispondi con isReady: false.
-Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "maturityDegree": numero_da_1_a_5}`;
+Se la fase sta procedendo proficuamente ma non ha ancora raggiunto l'obiettivo, rispondi con isReady: false.
+Rispondi SOLO in formato JSON valido: {"isReady": boolean, "reason": "string", "maturityDegree": numero_da_1_a_5}`,
+  );
 }
 
 const FINISH_TEXT: Record<FinishReason, string> = {
   judges: "per il voto dei giudici",
   max_turns: "per il raggiungimento del numero massimo di turni",
+  budget: "per il raggiungimento del budget di spesa",
   user_stop: "per interruzione dell'utente",
   error: "per un errore tecnico",
 };
 
-export function summaryPrompt(state: DebateState, reason: FinishReason): string {
+const FOCUS_BY_MODE: Record<DebateMode, string> = {
+  structured: "decisioni prese con le loro condizioni, numeri chiave, rischi aperti e prossimi passi concreti",
+  wild: "le idee più promettenti, ciascuna con il motivo per cui vale la pena approfondirla",
+};
+
+export function summaryPrompt(state: DebateState, reason: FinishReason): ChainPrompt {
   const verdicts = latestVerdicts(state).map(({ judgeName, isReady, reason: why, maturityDegree }) => ({ judgeName, isReady, reason: why, maturityDegree }));
-  return `Dibattito terminato ${FINISH_TEXT[reason]}. Tema: "${state.topic}".
+  const budget = state.settings.maxCostUsd > 0 ? `, budget: ${state.settings.maxCostUsd} USD` : "";
+  return conversation(
+    state,
+    `Dibattito terminato ${FINISH_TEXT[reason]}. Fase raggiunta: ${STAGE_LABELS[state.stage]}.
 
 LAVAGNA FINALE:
 ${board(state)}
 
-CRONOLOGIA COMPLETA:
-${formatMessages(state, state.messages)}
-
 Fai un sunto neutrale della discussione fin qui svoltasi, partendo da ciò che la lavagna registra come deciso, aperto o scartato.
 
 DEVI includere una sezione "Giudizio Finale" nel campo "summary" in cui indichi:
-- Perché il dibattito si è concluso: ${FINISH_TEXT[reason]} (limite massimo: ${state.settings.maxTurns} turni).
+- Perché il dibattito si è concluso: ${FINISH_TEXT[reason]} (limite massimo: ${state.settings.maxTurns} turni${budget}).
 - Quali giudici hanno votato cosa, riportando la loro reason e il loro score di maturityDegree. I dati dei voti dei giudici sono: ${JSON.stringify(verdicts)}
 - Il numero totale di debaters coinvolti (${state.debaters.length}) e di interventi (${state.turn}).
 
@@ -250,5 +337,8 @@ IL CAMPO "inShort" DEVE invece essere estremamente diretto al punto del dibattit
 Esempio "inShort" di valore: "L'idea XYZ ha un posizionamento di mercato sensato, ma i costi di acquisizione tramite i canali tradizionali (5K€) non sono sostenibili. La via operativa validata è il pivot su Growth Autopsy a costo zero, sfruttando la trasparenza per generare lead."
 Non usare mai resoconti finti senza utilità.
 
-Rispondi in formato JSON: {"summary": "sintesi estesa (max 400 parole)", "inShort": "la sintesi schietta e di alto valore per la chat (max 200 caratteri)"}`;
+IL CAMPO "focalPoints" contiene da 3 a 7 punti focali, ciascuno di massimo 35 parole, da leggere in 1-2 minuti in tutto: ${FOCUS_BY_MODE[state.mode]}. Non ripetere l'inShort e non usare frasi generiche.
+
+Rispondi in formato JSON: {"summary": "sintesi estesa (max 400 parole)", "inShort": "la sintesi schietta e di alto valore per la chat (max 200 caratteri)", "focalPoints": ["punto 1", "punto 2"]}`,
+  );
 }

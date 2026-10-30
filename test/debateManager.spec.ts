@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as path from "path";
-import { DebateManager, type DebaterSelection } from "../src/lib/debateManager";
+import { DebateManager, type DebateManagerOptions, type DebaterSelection } from "../src/lib/debateManager";
 import { renderDebaterModule, type GeneratedDebater } from "../src/lib/debaterFiles";
 import { debateConfig, type AgentConfig } from "../src/lib/debateConfig";
 import { DebateSession, readEvents } from "../src/lib/session/session";
 import { replay } from "../src/lib/session/state";
-import type { DebateEvent } from "../src/lib/session/events";
+import { USER_ID, type DebateEvent } from "../src/lib/session/events";
 import { hangUntilAborted, mockAgentFactory, type MockCall, type MockReply } from "./helpers/mockModel";
 import { debaterConfig, LIB_DIR, tempDir } from "./helpers/fixtures";
 
 const REPORT_URL = "https://example.com/report";
+const LONG_POINT = Array.from({ length: 50 }, (_, index) => `parola${index}`).join(" ");
 
 function generated(id: string, tools: GeneratedDebater["tools"]): GeneratedDebater {
   return { id, name: id.toUpperCase(), description: `${id} desc`, skills: [], whenToUse: "", instructions: `Sei ${id}.`, tools };
@@ -49,7 +50,7 @@ function scriptedTable(options: TableOptions = {}) {
     if (prompt.includes("CODA DELLE MANI ALZATE")) {
       routings++;
       const pending = [...section(prompt, "PROPOSTE IN ATTESA", "CODA DELLE MANI").matchAll(/- \[(W\d+)\]/g)].map((m) => m[1]);
-      const queue = [...section(prompt, "CODA DELLE MANI", "ULTIMI MESSAGGI").matchAll(/^- (\w+) \(/gm)].map((m) => m[1]);
+      const queue = [...section(prompt, "CODA DELLE MANI", "PARTECIPANTI:").matchAll(/^- (\w+) \(/gm)].map((m) => m[1]);
       // The first pick names someone who is not at the table: the manager must fall back
       const next = routings === 1 ? "ghost" : (queue[0] ?? "alpha");
       return JSON.stringify({
@@ -80,11 +81,15 @@ function scriptedTable(options: TableOptions = {}) {
         ],
       });
     }
-    if (prompt.includes("Valuta se il dibattito è giunto")) {
+    if (prompt.includes("Valuta se la fase attuale è giunta")) {
       const turn = Number(prompt.match(/Interventi finora: (\d+)/)![1]);
       return JSON.stringify({ isReady: turn >= readyAt, reason: `turno ${turn}`, maturityDegree: turn >= readyAt ? 5 : 2 });
     }
-    if (prompt.includes("Fai un sunto neutrale")) return JSON.stringify({ summary: "Sintesi estesa", inShort: "Esito in breve" });
+    if (prompt.includes("Fai un sunto neutrale")) {
+      // Nine points, the first far over the word limit: the manager must cap both
+      const focalPoints = [LONG_POINT, ...Array.from({ length: 8 }, (_, index) => `Punto ${index + 2}`)];
+      return JSON.stringify({ summary: "Sintesi estesa", inShort: "Esito in breve", focalPoints });
+    }
     throw new Error(`Unexpected prompt: ${prompt.slice(0, 160)}`);
   };
 }
@@ -108,12 +113,13 @@ describe("debate manager (mock models)", function () {
     fs.rmSync(debatersDir, { recursive: true, force: true });
   });
 
-  function manager(table: ReturnType<typeof scriptedTable>) {
+  function manager(table: ReturnType<typeof scriptedTable>, options: Partial<DebateManagerOptions> = {}) {
     const instance = new DebateManager({
       agentFactory: mockAgentFactory(table, calls),
       artifactsRoot: root,
       debatersDir,
-      settings: { maxTurns: 10 },
+      ...options,
+      settings: { maxTurns: 10, maxCostUsd: 0, ...options.settings },
     });
     instance.setOnMessage((msg) => {
       messages.push(msg);
@@ -148,17 +154,24 @@ describe("debate manager (mock models)", function () {
     const events = eventsOf(instance);
     assert.equal(instance.status, "FINISHED");
     assert.equal(state.finishReason, "judges");
-    assert.equal(state.turn, 4);
+    assert.equal(state.turn, 8);
+
+    // Stages: the judges close one stage per vote once the table is ready, the last one ends the debate
+    assert.deepEqual(
+      ofType(events, "stage_changed").map((event) => [event.stage, event.turn]),
+      [
+        ["critique", 4],
+        ["decide", 6],
+      ],
+    );
+    assert.ok(messages.some((msg) => msg.includes("Si passa alla fase di critica.")));
 
     // Floor: invalid first pick falls back, then the queue drives; nobody speaks twice in a row
+    const floors = ofType(events, "floor_given").map((event) => [event.speakerId, event.source]);
+    assert.deepEqual(floors[0], ["alpha", "fallback"]);
     assert.deepEqual(
-      ofType(events, "floor_given").map((event) => [event.speakerId, event.source]),
-      [
-        ["alpha", "fallback"],
-        ["beta", "queue"],
-        ["alpha", "queue"],
-        ["beta", "queue"],
-      ],
+      floors.slice(1),
+      Array.from({ length: 7 }, (_, index) => [index % 2 === 0 ? "beta" : "alpha", "queue"]),
     );
     assert.equal(messages.filter((msg) => msg.includes("Parola a ghost")).length, 0, "a fallback hides the wrong transition");
 
@@ -170,27 +183,28 @@ describe("debate manager (mock models)", function () {
 
     // Speech: only valid addressees, notebook kept per debater
     for (const speech of ofType(events, "speech")) assert.deepEqual(speech.replyTo, ["moderator"]);
-    assert.equal(state.notebooks.alpha, "Taccuino di alpha al turno 3");
+    assert.equal(state.notebooks.alpha, "Taccuino di alpha al turno 7");
 
     // Board: max three proposals, sources only with a retrieved URL, moderator ratification
     const urls = state.board.items.filter((item) => item.kind === "source").map((item) => item.url);
-    assert.deepEqual(urls, [`${REPORT_URL}/`, `${REPORT_URL}/`]);
+    assert.deepEqual(urls, Array(4).fill(`${REPORT_URL}/`));
     assert.ok(!state.board.items.some((item) => /Inventata|Oltre il limite/.test(item.text)));
-    assert.equal(ofType(events, "error").filter((event) => event.scope === "proposal").length, 6);
+    // Per speech: alpha cites two unretrieved sources, beta one
+    assert.equal(ofType(events, "error").filter((event) => event.scope === "proposal").length, 12);
     assert.ok(state.board.items.filter((item) => item.status === "accepted").length >= 3);
     assert.equal(state.boardRejections.length, 0);
 
     // Tools: web tools only in the free-text research call, local tools in structured calls
     const research = calls.filter((call) => call.prompt.includes("Prima di intervenire"));
-    assert.equal(research.length, 2);
+    assert.equal(research.length, 4);
     assert.ok(research.every((call) => call.agentId === "beta" && call.tools.includes("web_search") && !call.structured));
     const betaSpeeches = calls.filter((call) => call.agentId === "beta" && call.prompt.includes("È il tuo turno"));
-    assert.ok(betaSpeeches.every((call) => !call.tools.includes("web_search") && call.tools.includes("searchTranscript")));
-    assert.ok(calls.filter((call) => call.prompt.includes("CODA DELLE MANI")).every((call) => call.tools.includes("searchTranscript")));
+    assert.ok(betaSpeeches.every((call) => !call.tools.includes("web_search") && call.tools.includes("calculator")));
+    assert.ok(calls.filter((call) => call.prompt.includes("CODA DELLE MANI")).every((call) => call.tools.length === 0));
     assert.ok(betaSpeeches.every((call) => call.prompt.includes(`Report: ${REPORT_URL}`)));
 
-    // Judges: once per round of two speeches, three judges each
-    assert.equal(ofType(events, "judge_verdict").length, debateConfig.judges.filter((judge) => judge.enabled).length * 2);
+    // Judges: once per round of two speeches inside each stage, every enabled judge each time
+    assert.equal(ofType(events, "judge_verdict").length, debateConfig.judges.filter((judge) => judge.enabled).length * 4);
 
     // Accounting and durability: one usage record per model call, the log rebuilds the state
     assert.equal(state.usage.total.calls, calls.length);
@@ -198,8 +212,119 @@ describe("debate manager (mock models)", function () {
     for (const file of ["topic.md", "chat.md", "whiteboard.md", "sunto-finale.md", "viewer.html"]) {
       assert.ok(fs.existsSync(path.join(root, state.debateId, file)), `${file} missing`);
     }
-    assert.ok(messages.some((msg) => msg.endsWith("(Sunto Finale)]**\n\nEsito in breve")));
+
+    // Focal points: at most seven, each cut at 35 words, numbered under the short summary
+    const focalPoints = state.summary!.focalPoints;
+    assert.equal(focalPoints.length, 7);
+    assert.equal(focalPoints[0].split(" ").length, 35);
+    assert.ok(messages.some((msg) => msg.includes("(Sunto Finale)]**\n\nEsito in breve\n\n**Punti focali**\n1. parola0 ")));
+    assert.match(fs.readFileSync(path.join(root, state.debateId, "sunto-finale.md"), "utf8"), /## Punti focali\n1\. parola0[\s\S]*\n7\. Punto 7\n/);
     assert.ok(messages.at(-1)?.startsWith("📁 Artefatti salvati in"));
+  });
+
+  it("keeps one append-only transcript with cache breakpoints only on stable blocks", async () => {
+    const { instance, finished } = manager(scriptedTable({ readyAtTurn: 2 }));
+    await instance.startDebate("Tema in cache", "wild");
+    await instance.handleSelectionPreferenceInput("mod");
+    await instance.handleDebaterSelectionInput("ok");
+    await finished;
+
+    const chained = calls.filter((call) => call.parts.length > 1);
+    assert.ok(chained.length >= 10, "every debate call after the intro sends the transcript as blocks");
+    for (const [index, call] of chained.entries()) {
+      const blocks = call.parts.slice(0, -1);
+      // Breakpoints: the last block and the fixed checkpoint below it, never the tail that changes every call
+      const last = blocks.length - 1;
+      assert.deepEqual(call.cached, [...new Set([last - (last % 10), last])]);
+      // Prefix: whatever an earlier call sent is sent again unchanged, so the cache can serve it
+      const previous = chained[index - 1]?.parts.slice(0, -1) ?? [];
+      assert.deepEqual(blocks.slice(0, previous.length), previous, `call ${index} rewrote the transcript`);
+    }
+
+    // Cost: the usage of every call is priced on uncached, cache read and cache write tokens
+    const opusCall = ofType(eventsOf(instance), "llm_usage").find((event) => event.model === "claude-opus-5-5")!;
+    assert.deepEqual([opusCall.cachedInputTokens, opusCall.cacheWriteTokens], [60, 30]);
+    // 10 uncached x 4 + 60 read x 0.2 + 30 written (1h) x 4 x 2 + 20 out x 20, per million tokens
+    assert.equal(opusCall.costUsd.toFixed(6), "0.000692");
+  });
+
+  it("stops at the spend cap after one warning and closes with the summary", async () => {
+    // About $0.002 per mock turn: the 80% window spans more than one turn, so the warning cannot be skipped
+    const { instance, finished } = manager(scriptedTable({ readyAtTurn: 99 }), { settings: { maxCostUsd: 0.02, maxTurns: 50 } });
+    await instance.startDebate("Tema costoso");
+    await instance.handleSelectionPreferenceInput("mod");
+    await instance.handleDebaterSelectionInput("ok");
+    await finished;
+
+    const state = instance.state!;
+    assert.equal(state.finishReason, "budget");
+    assert.ok(state.turn > 0 && state.turn < 50);
+    assert.ok(state.usage.total.costUsd >= 0.02);
+    assert.equal(messages.filter((msg) => msg.startsWith("⚠️ Spesa stimata")).length, 1);
+    assert.ok(messages.some((msg) => msg.includes("si è concluso per il budget di spesa")));
+    assert.equal(state.summary?.inShort, "Esito in breve");
+  });
+
+  it("refuses a budget it cannot price", async () => {
+    const unpriced = debaterConfig("beta", { model: { provider: "ollama", model: "llama-locale" } });
+    const crashed = DebateSession.create(root, "Tema", { maxTurns: 10, maxCostUsd: 1, judgeEvery: 0 });
+    crashed.emit({ type: "debaters_selected", debaters: [debaterConfig("alpha"), unpriced] });
+
+    const { instance, finished } = manager(scriptedTable());
+    assert.equal(await instance.resume(), true);
+    await finished;
+    assert.equal(instance.state!.finishReason, "error");
+    assert.ok(messages.some((msg) => msg.includes("senza prezzo per llama-locale")));
+    assert.equal(calls.length, 0, "nothing is spent before the check");
+  });
+
+  it("gives the floor to the user, with the text of the raised hand, a text sent later, or nothing", async () => {
+    let instance!: DebateManager;
+    const hands: string[] = [];
+    const table = scriptedTable({
+      readyAtTurn: 8,
+      onSpeech: (_, count) => {
+        if (count === 1) hands.push(instance.raiseUserHand("  Servono numeri veri  "));
+        if (count === 3 || count === 4) hands.push(instance.raiseUserHand());
+        return undefined;
+      },
+    });
+    const run = manager(table, { userSpeechTimeoutMs: 50 });
+    instance = run.instance;
+    let floors = 0;
+    const replies: string[] = [];
+    instance.setOnMessage((msg) => {
+      messages.push(msg);
+      // First time the user speaks through the chat; the second time they stay silent
+      if (msg.startsWith("🎤 La parola a te") && ++floors === 1) {
+        replies.push(instance.raiseUserHand());
+        assert.equal(instance.awaitingUserSpeech, true);
+        assert.equal(instance.submitUserSpeech("Detto in chat"), true);
+      }
+    });
+
+    assert.equal(instance.raiseUserHand("prima del via"), "not_running");
+    await instance.startDebate("Tema con committente", "wild");
+    await instance.handleSelectionPreferenceInput("mod");
+    await instance.handleDebaterSelectionInput("ok");
+    await run.finished;
+
+    const events = eventsOf(instance);
+    assert.deepEqual(hands, ["queued", "queued", "queued"]);
+    assert.deepEqual(replies, ["has_floor"]);
+    assert.deepEqual(
+      ofType(events, "speech")
+        .filter((event) => event.speakerId === USER_ID)
+        .map((event) => event.text),
+      ["Servono numeri veri", "Detto in chat"],
+    );
+    assert.equal(ofType(events, "floor_given").filter((event) => event.speakerId === USER_ID).length, 3);
+    assert.equal(messages.filter((msg) => msg === "Nessun intervento dal committente, si prosegue.").length, 1);
+    assert.ok(messages.includes("**[Committente]**\n\nServono numeri veri"));
+    // The moderator is told, and its transition naming someone else is not shown
+    const routings = calls.filter((call) => call.prompt.includes("IL COMMITTENTE HA CHIESTO LA PAROLA"));
+    assert.equal(routings.length, 3);
+    assert.equal(instance.awaitingUserSpeech, false);
   });
 
   it("generates smart debaters, keeps them across feedback and writes them on confirm", async () => {
@@ -211,7 +336,7 @@ describe("debate manager (mock models)", function () {
       whenToUse: "sempre",
       description: "nuovo",
       instructions: 'Dice "cose" con `backtick`',
-      tools: ["webFetch", "teleport"],
+      tools: ["webFetch"],
     };
     const { instance, finished } = manager(scriptedTable({ newDebaters: [newDebater] }));
     const rounds: { selection: DebaterSelection[]; candidates: AgentConfig[] }[] = [];
@@ -297,7 +422,8 @@ describe("debate manager (mock models)", function () {
   });
 
   it("resumes a crashed debate from its log", async () => {
-    const crashed = DebateSession.create(root, "Tema ripreso", { maxTurns: 10, contextWindow: 8, judgeEvery: 0 });
+    // Wild mode has a single stage: the first ready vote ends the debate
+    const crashed = DebateSession.create(root, "Tema ripreso", { maxTurns: 10, maxCostUsd: 0, judgeEvery: 0 }, { mode: "wild" });
     crashed.emit({ type: "debaters_selected", debaters: [debaterConfig("alpha"), debaterConfig("beta")] });
     crashed.emit({ type: "moderator_message", kind: "intro", text: "Intro originale" });
     crashed.emit({ type: "floor_given", speakerId: "alpha", source: "called", reason: "inizio" });

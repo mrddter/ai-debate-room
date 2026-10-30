@@ -1,7 +1,11 @@
 import type { AgentConfig } from "../debateConfig";
 import {
+  MODE_STAGES,
   MODERATOR_ID,
+  USER_ID,
   type DebateEvent,
+  type DebateMode,
+  type DebateStage,
   type FinishReason,
   type HandKind,
   type SessionSettings,
@@ -42,17 +46,29 @@ export interface UsageTotals {
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
+  cacheWriteTokens: number;
   reasoningTokens: number;
   webSearches: number;
+  costUsd: number;
   ms: number;
 }
 
 export type DebatePhase = "selecting" | "running" | "finished";
 
+export interface DebateSummary {
+  text: string;
+  inShort: string;
+  focalPoints: string[];
+}
+
 export interface DebateState {
   debateId: string;
   topic: string;
   settings: SessionSettings;
+  mode: DebateMode;
+  stage: DebateStage;
+  // Turn at which the current stage began: judges wait a full round inside each stage
+  stageStartedTurn: number;
   phase: DebatePhase;
   startedAt: string;
   endedAt?: string;
@@ -76,18 +92,31 @@ export interface DebateState {
   errors: number;
   boardRejections: string[];
   finishReason?: FinishReason;
-  summary?: { text: string; inShort: string };
+  summary?: DebateSummary;
 }
 
 export function emptyUsage(): UsageTotals {
-  return { calls: 0, inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0, webSearches: 0, ms: 0 };
+  return {
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+    webSearches: 0,
+    costUsd: 0,
+    ms: 0,
+  };
 }
 
 export function createInitialState(): DebateState {
   return {
     debateId: "",
     topic: "",
-    settings: { maxTurns: 0, contextWindow: 0, judgeEvery: 0 },
+    settings: { maxTurns: 0, maxCostUsd: 0, judgeEvery: 0 },
+    mode: "structured",
+    stage: MODE_STAGES.structured[0],
+    stageStartedTurn: 0,
     phase: "selecting",
     startedAt: "",
     debaters: [],
@@ -111,9 +140,15 @@ function addUsage(totals: UsageTotals, record: UsageRecord) {
   totals.inputTokens += record.inputTokens;
   totals.outputTokens += record.outputTokens;
   totals.cachedInputTokens += record.cachedInputTokens;
+  totals.cacheWriteTokens += record.cacheWriteTokens;
   totals.reasoningTokens += record.reasoningTokens;
   totals.webSearches += record.webSearches;
+  totals.costUsd += record.costUsd;
   totals.ms += record.ms;
+}
+
+function pushModeratorMessage(state: DebateState, event: DebateEvent, text: string) {
+  state.messages.push({ seq: event.seq, turn: event.turn, speakerId: MODERATOR_ID, kind: "moderator", text, replyTo: [] });
 }
 
 // Mutates state: the session owns a single state object and the log is the source of truth (replay rebuilds it)
@@ -123,6 +158,9 @@ export function applyEvent(state: DebateState, event: DebateEvent): DebateState 
       state.debateId = event.debateId;
       state.topic = event.topic;
       state.settings = { ...event.settings };
+      state.mode = event.mode;
+      state.stage = MODE_STAGES[event.mode][0];
+      state.stageStartedTurn = 0;
       state.startedAt = event.ts;
       state.phase = "selecting";
       break;
@@ -132,15 +170,15 @@ export function applyEvent(state: DebateState, event: DebateEvent): DebateState 
       state.phase = "running";
       break;
     case "moderator_message":
-      state.messages.push({
-        seq: event.seq,
-        turn: event.turn,
-        speakerId: MODERATOR_ID,
-        kind: "moderator",
-        text: event.text,
-        replyTo: [],
-      });
-      if (event.kind === "summary") state.summary = { text: event.text, inShort: event.inShort ?? "" };
+      pushModeratorMessage(state, event, event.text);
+      if (event.kind === "summary") {
+        state.summary = { text: event.text, inShort: event.inShort ?? "", focalPoints: event.focalPoints ?? [] };
+      }
+      break;
+    case "stage_changed":
+      state.stage = event.stage;
+      state.stageStartedTurn = event.turn;
+      pushModeratorMessage(state, event, event.text);
       break;
     case "floor_given":
       // Getting the floor consumes the raised hand
@@ -243,30 +281,6 @@ export function latestVerdicts(state: DebateState): JudgeVerdict[] {
 
 export function nameOf(state: DebateState, id: string): string {
   if (id === MODERATOR_ID) return "Moderatore";
+  if (id === USER_ID) return "Committente";
   return state.debaters.find((debater) => debater.id === id)?.name ?? id;
-}
-
-// Messages addressed to a debater that fell out of the recent window
-export function addressedTo(state: DebateState, debaterId: string, windowSize: number, limit = 3): TranscriptMessage[] {
-  const older = state.messages.slice(0, Math.max(0, state.messages.length - windowSize));
-  return older.filter((message) => message.replyTo.includes(debaterId)).slice(-limit);
-}
-
-export function searchTranscript(
-  state: DebateState,
-  query: string,
-  options: { speakerId?: string; limit?: number } = {},
-): TranscriptMessage[] {
-  const terms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((term) => term.length > 1);
-  if (terms.length === 0) return [];
-  return state.messages
-    .filter((message) => !options.speakerId || message.speakerId === options.speakerId)
-    .filter((message) => {
-      const text = message.text.toLowerCase();
-      return terms.every((term) => text.includes(term));
-    })
-    .slice(-(options.limit ?? 5));
 }

@@ -1,4 +1,4 @@
-import type { FloorSource } from "./events";
+import { MODE_STAGES, USER_ID, type DebateStage, type FloorSource } from "./events";
 import type { DebateState } from "./state";
 import type { BoardOp } from "./whiteboard";
 
@@ -19,9 +19,16 @@ export interface Verdict {
   maturityDegree: number;
 }
 
-/** Validates the moderator pick; an invalid or missing pick falls back to the oldest raised hand, then to who spoke least. */
+/**
+ * The user's raised hand always wins. Otherwise validates the moderator pick; an invalid or missing pick
+ * falls back to the oldest raised hand, then to who spoke least.
+ */
 export function chooseSpeaker(state: DebateState, decision: RoutingDecision | null): FloorChoice {
   if (state.debaters.length === 0) throw new Error("No debaters to give the floor to");
+  // A person waiting in the chat must never lose the turn to a model pick
+  if (state.queue.some((hand) => hand.debaterId === USER_ID)) {
+    return { speakerId: USER_ID, source: "queue", reason: "Il committente ha chiesto la parola" };
+  }
   // Nobody speaks twice in a row, unless they are the only one at the table
   const eligible = state.debaters.filter((debater) => state.debaters.length === 1 || debater.id !== state.lastSpeakerId);
   const eligibleIds = new Set(eligible.map((debater) => debater.id));
@@ -43,15 +50,26 @@ export function chooseSpeaker(state: DebateState, decision: RoutingDecision | nu
   return { speakerId: least.id, source: "fallback", reason: "Chi ha parlato meno" };
 }
 
-// Judges vote once every debater had a chance to speak, then every judgeEvery speeches (0 = once per round)
+// Inside each stage judges vote once every debater had a chance to speak, then every judgeEvery speeches (0 = once per round)
 export function judgesDue(state: DebateState): boolean {
   const roster = state.debaters.length;
   const every = state.settings.judgeEvery > 0 ? state.settings.judgeEvery : roster;
-  return every > 0 && state.turn >= roster && state.turn % every === 0;
+  const inStage = state.turn - state.stageStartedTurn;
+  return every > 0 && inStage >= roster && inStage % every === 0;
+}
+
+export function nextStage(state: DebateState): DebateStage | undefined {
+  const stages = MODE_STAGES[state.mode];
+  return stages[stages.indexOf(state.stage) + 1];
+}
+
+export function budgetSpent(state: DebateState, share = 1): boolean {
+  const cap = state.settings.maxCostUsd;
+  return cap > 0 && state.usage.total.costUsd >= cap * share;
 }
 
 // Unanimous readiness, or two thirds ready and two thirds at full maturity; a judge that failed counts as not ready
-export function debateConcluded(verdicts: Verdict[], judgeCount: number): boolean {
+export function stageConcluded(verdicts: Verdict[], judgeCount: number): boolean {
   if (judgeCount === 0) return false;
   const ready = verdicts.filter((verdict) => verdict.isReady).length;
   if (ready === judgeCount) return true;

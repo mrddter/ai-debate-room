@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { DebateEvent, DebateEventBody, SessionSettings } from "./events";
+import type { DebateEvent, DebateEventBody, DebateMode, SessionSettings } from "./events";
 import { applyEvent, createInitialState, replay, type DebateState } from "./state";
 import { writeProjections } from "./projections";
 
@@ -52,14 +52,19 @@ export class DebateSession {
     return path.join(this.dir, EVENTS_FILE);
   }
 
-  static create(root: string, topic: string, settings: SessionSettings, now = new Date()): DebateSession {
+  static create(
+    root: string,
+    topic: string,
+    settings: SessionSettings,
+    { mode = "structured", now = new Date() }: { mode?: DebateMode; now?: Date } = {},
+  ): DebateSession {
     let debateId = folderName(now);
     // Two debates started in the same second must not share a log
     for (let suffix = 2; fs.existsSync(path.join(root, debateId)); suffix++) debateId = `${folderName(now)}-${suffix}`;
     const dir = path.join(root, debateId);
     fs.mkdirSync(dir, { recursive: true });
     const session = new DebateSession(dir, createInitialState(), 0);
-    session.emit({ type: "debate_started", debateId, topic, settings });
+    session.emit({ type: "debate_started", debateId, topic, mode, settings });
     return session;
   }
 

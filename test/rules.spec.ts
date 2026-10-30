@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { createInitialState, type DebateState } from "../src/lib/session/state";
-import { chooseSpeaker, cleanBoardOp, debateConcluded, judgesDue, truncateWords } from "../src/lib/session/rules";
+import { USER_ID } from "../src/lib/session/events";
+import { budgetSpent, chooseSpeaker, cleanBoardOp, judgesDue, nextStage, stageConcluded, truncateWords } from "../src/lib/session/rules";
 import { debaterConfig } from "./helpers/fixtures";
+
+const settings = { maxTurns: 10, maxCostUsd: 0, judgeEvery: 0 };
 
 function table(overrides: Partial<DebateState> = {}): DebateState {
   return {
     ...createInitialState(),
     debaters: ["alpha", "beta", "gamma"].map(debaterConfig),
-    settings: { maxTurns: 10, contextWindow: 4, judgeEvery: 0 },
+    settings,
     ...overrides,
   };
 }
@@ -42,22 +45,48 @@ describe("turn rules", () => {
     assert.equal(chooseSpeaker(state, null).speakerId, "alpha");
   });
 
-  it("calls the judges once per round by default", () => {
-    const due = (turn: number, judgeEvery = 0) => judgesDue(table({ turn, settings: { maxTurns: 99, contextWindow: 4, judgeEvery } }));
-    assert.deepEqual([1, 2, 3, 4, 5, 6].map((turn) => due(turn)), [false, false, true, false, false, true]);
-    assert.deepEqual([2, 3, 4, 5].map((turn) => due(turn, 2)), [false, false, true, false]);
+  it("gives the floor to the user as soon as they raise a hand, whatever the moderator picks", () => {
+    const state = table({ queue: [hand("beta"), hand(USER_ID, 1)] });
+    assert.deepEqual(chooseSpeaker(state, { nextSpeakerId: "beta", source: "queue", reason: "r" }).speakerId, USER_ID);
+    // Without a raised hand the moderator cannot call the user
+    assert.equal(chooseSpeaker(table(), { nextSpeakerId: USER_ID, source: "called", reason: "r" }).source, "fallback");
   });
 
-  it("concludes on unanimity or on two thirds ready and mature", () => {
+  it("calls the judges once per round of the current stage by default", () => {
+    const due = (turn: number, judgeEvery = 0, stageStartedTurn = 0) =>
+      judgesDue(table({ turn, stageStartedTurn, settings: { ...settings, maxTurns: 99, judgeEvery } }));
+    assert.deepEqual([1, 2, 3, 4, 5, 6].map((turn) => due(turn)), [false, false, true, false, false, true]);
+    assert.deepEqual([2, 3, 4, 5].map((turn) => due(turn, 2)), [false, false, true, false]);
+    // A new stage gets a full round before the first vote
+    assert.deepEqual([4, 5, 6, 7].map((turn) => due(turn, 0, 4)), [false, false, false, true]);
+  });
+
+  it("walks the stages of the mode and stops after the last", () => {
+    assert.equal(nextStage(table({ mode: "structured", stage: "explore" })), "critique");
+    assert.equal(nextStage(table({ mode: "structured", stage: "critique" })), "decide");
+    assert.equal(nextStage(table({ mode: "structured", stage: "decide" })), undefined);
+    assert.equal(nextStage(table({ mode: "wild", stage: "brainstorm" })), undefined);
+  });
+
+  it("spends the budget only when one is set", () => {
+    const spent = (costUsd: number, maxCostUsd: number, share?: number) => {
+      const state = table({ settings: { ...settings, maxCostUsd } });
+      state.usage.total.costUsd = costUsd;
+      return budgetSpent(state, share);
+    };
+    assert.deepEqual([spent(4.99, 5), spent(5, 5), spent(4, 5, 0.8), spent(3.99, 5, 0.8), spent(100, 0)], [false, true, true, false, false]);
+  });
+
+  it("concludes a stage on unanimity or on two thirds ready and mature", () => {
     const verdict = (isReady: boolean, maturityDegree: number) => ({ isReady, maturityDegree });
-    assert.equal(debateConcluded([verdict(true, 2), verdict(true, 3), verdict(true, 1)], 3), true);
-    assert.equal(debateConcluded([verdict(true, 5), verdict(true, 5), verdict(false, 2)], 3), true);
-    assert.equal(debateConcluded([verdict(true, 5), verdict(true, 4), verdict(false, 2)], 3), false);
+    assert.equal(stageConcluded([verdict(true, 2), verdict(true, 3), verdict(true, 1)], 3), true);
+    assert.equal(stageConcluded([verdict(true, 5), verdict(true, 5), verdict(false, 2)], 3), true);
+    assert.equal(stageConcluded([verdict(true, 5), verdict(true, 4), verdict(false, 2)], 3), false);
     // Readiness and maturity are counted independently, as in the original rule
-    assert.equal(debateConcluded([verdict(true, 5), verdict(true, 4), verdict(false, 5)], 3), true);
+    assert.equal(stageConcluded([verdict(true, 5), verdict(true, 4), verdict(false, 5)], 3), true);
     // A judge that failed to answer counts as not ready
-    assert.equal(debateConcluded([verdict(true, 5), verdict(true, 5)], 4), false);
-    assert.equal(debateConcluded([], 0), false);
+    assert.equal(stageConcluded([verdict(true, 5), verdict(true, 5)], 4), false);
+    assert.equal(stageConcluded([], 0), false);
   });
 
   it("normalizes model output before it reaches the board", () => {

@@ -16,11 +16,23 @@ La lavagna raccoglie decisioni, domande aperte, ipotesi, fonti e note, ciascuna 
 
 ### Memoria dei debater
 
-Ogni debater tiene un taccuino personale che aggiorna a ogni intervento. Nel prompt riceve gli ultimi 8 messaggi del tavolo (`contextWindow`) più quelli rivolti a lui anche se più vecchi, e con lo strumento `searchTranscript` può cercare nell'intera trascrizione.
+Ogni chiamata ai modelli riceve l'intera trascrizione del dibattito, un messaggio per blocco, nello stesso ordine e sempre identica nella parte già inviata: le richieste nuove aggiungono blocchi in coda e non riscrivono mai quelli precedenti. Questo permette al prompt caching di Anthropic di servire dalla cache tutto ciò che è già stato letto (TTL di un'ora, punti di cache sull'ultimo blocco e ogni dieci blocchi), così i debater ricordano tutto il dibattito pagando per intero solo i messaggi nuovi. Oltre alla trascrizione, ogni debater tiene un taccuino personale che aggiorna a ogni intervento.
+
+### Modalità e fasi
+
+`/debate` avvia un dibattito strutturato in tre fasi: esplorazione (si allarga il quadro senza bocciare le idee), critica (si mettono alla prova le opzioni) e decisione (si converge su cosa fare). `/brainstorm` avvia invece una sola fase di brainstorming libero, in cui si costruisce sulle idee degli altri e nessuna proposta viene scartata. Moderatore, debater e giudici ricevono le regole della fase in corso, e il passaggio alla fase successiva viene annunciato nella chat.
 
 ### Giudici
 
-Tre giudici valutano il dibattito una volta per giro, cioè ogni N interventi con N pari al numero di partecipanti (`judgeEvery` in `src/lib/debateConfig.ts` cambia la frequenza). Il dibattito si chiude quando sono tutti pronti, oppure quando almeno due terzi sono pronti e due terzi assegnano maturità 5; il limite di sicurezza è di 500 interventi.
+Tre giudici valutano la fase in corso una volta per giro, cioè ogni N interventi con N pari al numero di partecipanti (`judgeEvery` in `src/lib/debateConfig.ts` cambia la frequenza); il conteggio riparte a ogni cambio di fase. Una fase si chiude quando i giudici sono tutti pronti, oppure quando almeno due terzi sono pronti e due terzi assegnano maturità 5; chiusa l'ultima fase, il dibattito finisce. Il limite di sicurezza è di 120 interventi (`maxTurns`), appena sopra quanti ne copre il budget di spesa.
+
+### Il committente al tavolo
+
+Chi usa il bot partecipa come committente. Con `/mano` alza la mano e il moderatore gli dà la parola appena finisce l'intervento in corso, prima di qualunque debater. Se la mano è alzata con un testo (`/mano Servono numeri veri`) quel testo diventa l'intervento; altrimenti il bot avvisa quando è il suo turno e il messaggio successivo scritto in chat vale come intervento. Dopo 10 minuti senza risposta il dibattito prosegue.
+
+### Budget di spesa
+
+Ogni chiamata ai modelli registra il costo stimato secondo il listino in `src/lib/pricing.ts`: token non in cache, letti dalla cache, scritti in cache, token generati e ricerche web. Quando la spesa raggiunge l'80% di `maxCostUsd` (`src/lib/debateConfig.ts`, oggi 20 dollari: con i modelli attuali un intervento costa circa 16 centesimi, ricerca web e giudici compresi, più una quota che cresce con la lunghezza della trascrizione, quindi bastano per circa 100 interventi) il bot avvisa una volta; al 100% chiude il dibattito e genera comunque il sunto. Con un budget attivo, un modello assente dal listino blocca l'avvio invece di essere contato a zero; `maxCostUsd: 0` disattiva il controllo.
 
 ### Debater fissi e smart
 
@@ -31,7 +43,6 @@ Il roster pre-configurato è in `src/debaters/`. In modalità smart il moderator
 Gli strumenti si assegnano per ruolo in `roleTools` (`src/lib/debateConfig.ts`) e per singolo debater nel campo `tools`:
 
 - `calculator`: valuta espressioni aritmetiche senza eseguire codice; attivo per tutti i debater.
-- `searchTranscript`: cerca nella trascrizione del dibattito; attivo per moderatore e debater.
 - `webSearch` e `webFetch`: ricerca e lettura web native di Anthropic, al massimo 3 usi per chiamata. Le usano solo i debater che le hanno nel campo `tools` (oggi `trend_hunter`), in una fase di ricerca separata prima dell'intervento; le fonti trovate entrano nel prompt e possono essere proposte in lavagna. Ogni ricerca si paga a parte rispetto ai token (listino Anthropic: 10 dollari ogni 1.000 ricerche).
 
 ## Comandi Telegram
@@ -39,8 +50,10 @@ Gli strumenti si assegnano per ruolo in `roleTools` (`src/lib/debateConfig.ts`) 
 L'interfaccia è un bot Telegram con questi comandi:
 
 - `/start` o `/help`: mostra le istruzioni base.
-- `/debate <argomento>`: avvia un nuovo dibattito (es. `/debate Creare una piattaforma SaaS per dentisti`); senza argomento il bot chiede su quale tema e non avvia nulla.
-- `/status`: stato, argomento, interventi, mani alzate e consumo (chiamate LLM, token, ricerche web).
+- `/debate <argomento>`: avvia un dibattito strutturato (es. `/debate Creare una piattaforma SaaS per dentisti`); senza argomento il bot chiede su quale tema e non avvia nulla.
+- `/brainstorm <argomento>`: avvia un brainstorming libero sullo stesso schema.
+- `/mano [testo]`: chiede la parola durante il dibattito; il testo, se presente, è l'intervento.
+- `/status`: stato, modalità e fase, argomento, interventi, mani alzate, consumo (chiamate LLM, token, letture dalla cache, ricerche web) e spesa stimata rispetto al budget.
 - `/whiteboard`: mostra la lavagna corrente.
 - `/stop`: interrompe il dibattito anche durante una chiamata in corso e fa comunque generare il sunto finale; durante la selezione la annulla.
 - `/resume`: riprende l'ultimo dibattito rimasto a metà, per esempio dopo un riavvio del bot.
@@ -50,8 +63,10 @@ Da incollare in BotFather:
 ```
 start - Messaggio di benvenuto
 help - Mostra istruzioni di base
-debate - Inizia un dibattito (es /debate Nuova idea)
-status - Mostra stato e consumi
+debate - Dibattito strutturato (es /debate Nuova idea)
+brainstorm - Brainstorming libero (es /brainstorm Nuova idea)
+mano - Chiedi la parola (es /mano Il tuo intervento)
+status - Mostra stato, fase e spesa
 whiteboard - Mostra la lavagna
 stop - Interrompe il dibattito
 resume - Riprende un dibattito interrotto
@@ -67,11 +82,11 @@ Sulla proposta del moderatore rispondi `ok` o `conferma` per partire; qualunque 
 
 ## Artefatti e ripresa
 
-Ogni dibattito ha una cartella `artifacts/<aammgg-hhmmss>-debate/`. La fonte di verità è `events.jsonl`, un evento per riga scritto subito su disco: interventi, mani alzate, scelte del moderatore, lavagna, ricerche, voti dei giudici e consumo di token. Da questo file si ricostruiscono `topic.md`, `chat.md`, `whiteboard.md`, `sunto-finale.md` (con le metriche) e `viewer.html`, una pagina autonoma con cronologia filtrabile, lavagna e metriche. Per rigenerarli: `npm run render -- artifacts/<cartella>`.
+Ogni dibattito ha una cartella `artifacts/<aammgg-hhmmss>-debate/`. La fonte di verità è `events.jsonl`, un evento per riga scritto subito su disco: interventi, mani alzate, scelte del moderatore, lavagna, ricerche, voti dei giudici e consumo di token. Da questo file si ricostruiscono `topic.md`, `chat.md`, `whiteboard.md`, `sunto-finale.md` e `viewer.html`. Il sunto finale si apre con l'esito in breve e da tre a sette punti focali, leggibili in un paio di minuti, poi riporta la sintesi completa e le metriche (token, cache, costo stimato per ruolo). `viewer.html` è una pagina autonoma con cronologia filtrabile, lavagna e metriche. Per rigenerarli: `npm run render -- artifacts/<cartella>`.
 
 ## Sviluppo
 
-`npm run type-check` controlla i tipi. `npm test` esegue la suite con modelli finti, senza chiamate a pagamento: regole di turno, lavagna, log degli eventi, file dei debater generati e dibattiti completi, compresi interruzione e ripresa.
+`npm run type-check` controlla i tipi. `npm test` esegue la suite con modelli finti, senza chiamate a pagamento: regole di turno, lavagna, log degli eventi, file dei debater generati, listino e punti di cache, dibattiti completi con fasi, budget e interventi del committente, compresi interruzione e ripresa.
 
 ## Come Configurare il Bot Telegram
 

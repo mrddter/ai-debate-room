@@ -17,13 +17,13 @@ describe("projections", () => {
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
   function sampleSession() {
-    const session = DebateSession.create(root, hostileTopic, { maxTurns: 5, contextWindow: 4, judgeEvery: 0 });
+    const session = DebateSession.create(root, hostileTopic, { maxTurns: 5, maxCostUsd: 2, judgeEvery: 0 });
     session.emit({ type: "debaters_selected", debaters: [debaterConfig("alpha"), debaterConfig("beta")] });
     session.emit({ type: "moderator_message", kind: "intro", text: "Benvenuti" });
     session.emit({ type: "speech", speakerId: "alpha", text: "Primo punto", replyTo: [] });
     session.emit({ type: "speech", speakerId: "beta", text: "Replica", replyTo: ["alpha"] });
-    session.emit({ type: "moderator_message", kind: "summary", text: "Sintesi", inShort: "Esito netto" });
-    session.emit({ type: "debate_finished", reason: "judges" });
+    session.emit({ type: "moderator_message", kind: "summary", text: "Sintesi", inShort: "Esito netto", focalPoints: ["Primo", "Secondo"] });
+    session.emit({ type: "debate_finished", reason: "budget" });
     return session;
   }
 
@@ -34,8 +34,10 @@ describe("projections", () => {
       assert.ok(fs.existsSync(path.join(session.dir, file)), `${file} missing`);
     }
     const summary = fs.readFileSync(path.join(session.dir, "sunto-finale.md"), "utf8");
-    assert.match(summary, /## In breve\nEsito netto/);
-    assert.match(summary, /voto dei giudici/);
+    // Read in this order: the outcome, the points to remember, then the long version
+    assert.match(summary, /## In breve\nEsito netto\n\n## Punti focali\n1\. Primo\n2\. Secondo\n\n## Sintesi del dibattito\nSintesi/);
+    assert.match(summary, /\*\*Fine\*\*: budget di spesa raggiunto/);
+    assert.match(summary, /\*\*Spesa stimata\*\*: \$0\.00 su \$2\.00 di budget/);
   });
 
   it("renders the chat with turns and addressees", () => {

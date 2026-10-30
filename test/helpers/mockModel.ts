@@ -5,6 +5,10 @@ import { createVolcanicAgent } from "../../src/lib/volcanicAI";
 export interface MockCall {
   agentId: string;
   prompt: string;
+  // User text parts as the provider receives them: the cacheable conversation blocks, then the tail
+  parts: string[];
+  // Indexes of the parts that carry an Anthropic cache breakpoint
+  cached: number[];
   tools: string[];
   structured: boolean;
   abortSignal?: AbortSignal;
@@ -18,25 +22,27 @@ export interface MockReply {
 // Structured calls must reply with a JSON string, like a real model
 export type Responder = (call: MockCall) => string | MockReply | Promise<string | MockReply>;
 
-const usage = {
-  inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+// Every call reports cache traffic, so cost accounting is exercised on all three input rates
+export const MOCK_USAGE = {
+  inputTokens: { total: 100, noCache: 10, cacheRead: 60, cacheWrite: 30 },
   outputTokens: { total: 20, text: 20, reasoning: 0 },
 };
 
-function promptText(options: any): string {
+function textParts(options: any): any[] {
   return (options.prompt ?? [])
     .filter((message: any) => message.role === "user")
     .flatMap((message: any) => (Array.isArray(message.content) ? message.content : []))
-    .filter((part: any) => part.type === "text")
-    .map((part: any) => part.text)
-    .join("\n");
+    .filter((part: any) => part.type === "text");
 }
 
 export function mockModel(agentId: string, respond: Responder, calls: MockCall[]) {
   const answer = async (options: any): Promise<MockReply> => {
+    const parts = textParts(options);
     const call: MockCall = {
       agentId,
-      prompt: promptText(options),
+      prompt: parts.map((part) => part.text).join("\n"),
+      parts: parts.map((part) => part.text),
+      cached: parts.flatMap((part, index) => (part.providerOptions?.anthropic?.cacheControl ? [index] : [])),
       tools: (options.tools ?? []).map((tool: any) => tool.name),
       structured: options.responseFormat?.type === "json",
       abortSignal: options.abortSignal,
@@ -53,7 +59,7 @@ export function mockModel(agentId: string, respond: Responder, calls: MockCall[]
       return {
         content: [{ type: "text", text: reply.text }],
         finishReason: { unified: "stop", raw: "stop" },
-        usage,
+        usage: MOCK_USAGE,
         warnings: [],
       };
     },
@@ -72,7 +78,7 @@ export function mockModel(agentId: string, respond: Responder, calls: MockCall[]
           { type: "text-start", id: "t1" },
           { type: "text-delta", id: "t1", delta: reply.text },
           { type: "text-end", id: "t1" },
-          { type: "finish", usage, finishReason: { unified: "stop", raw: "stop" } },
+          { type: "finish", usage: MOCK_USAGE, finishReason: { unified: "stop", raw: "stop" } },
         ]),
       };
     },

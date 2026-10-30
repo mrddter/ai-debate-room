@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BOARD_ITEM_KINDS, BOARD_OPS } from "./session/whiteboard";
 import { HAND_KINDS } from "./session/events";
+import { TOOL_KEYS } from "../mcp/index";
 
 // Array lengths are capped in code, not in the schema: structured output support for maxItems varies by provider
 
@@ -20,7 +21,8 @@ export const debaterSelectionSchema = z.object({
       whenToUse: z.string(),
       description: z.string(),
       instructions: z.string(),
-      tools: z.array(z.string()).optional(),
+      // An enum, not free text: a near miss like "web_search" would be dropped and leave the role without the tool
+      tools: z.array(z.enum(TOOL_KEYS)).optional(),
     })
   ).optional(),
   moderatorMessage: z.string().optional(),
@@ -68,6 +70,7 @@ export const speechSchema = z.object({
 export const summarySchema = z.object({
   summary: z.string(),
   inShort: z.string(),
+  focalPoints: z.array(z.string()).describe("Da 3 a 7 punti focali, max 35 parole ciascuno"),
 });
 
 export const judgeOutputSchema = z.object({
