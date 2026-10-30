@@ -36,15 +36,7 @@ export const sharedWhiteboardTool = createTool({
     sourceNoteId: z.string().optional().describe("Used with 'link_notes': The ID of the note that originates the link."),
     targetNoteId: z.string().optional().describe("Used with 'link_notes': The ID of the note being linked to."),
   }),
-  execute: async ({ context }: any) => {
-    const { action, mainText, noteContent, sourceNoteId, targetNoteId } = context as {
-      action: string;
-      mainText?: string;
-      noteContent?: string;
-      sourceNoteId?: string;
-      targetNoteId?: string;
-    };
-
+  execute: async ({ action, mainText, noteContent, sourceNoteId, targetNoteId }) => {
     log.debug(`[sharedWhiteboardTool] Action: ${action}`);
 
     if (action === "read") {

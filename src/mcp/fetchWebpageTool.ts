@@ -12,8 +12,7 @@ export const fetchWebpageTool = createTool({
       .url()
       .describe("The full URL of the webpage to fetch (e.g., https://example.com)"),
   }),
-  execute: async ({ context }: any) => {
-    const { url } = context as { url: string };
+  execute: async ({ url }) => {
     log.debug(`[fetchWebpageTool] Fetching URL: "${url}"`);
 
     try {

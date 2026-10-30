@@ -13,8 +13,7 @@ export const webSearchTool = createTool({
       .string()
       .describe("The search query to look up on the web."),
   }),
-  execute: async ({ context }: any) => {
-    const { query } = context as { query: string };
+  execute: async ({ query }) => {
     log.debug(`[webSearchTool] Searching for: "${query}"`);
 
     try {

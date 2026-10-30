@@ -52,6 +52,7 @@ Per far funzionare il progetto, devi collegare il bot usando **BotFather** su Te
    \`\`\`bash
    TELEGRAM_BOT_TOKEN="il_tuo_token_qui"
    TELEGRAM_CHAT_ID="il_tuo_chat_id_qui"
-   OPENAI_API_KEY="la_tua_chiave_openai"
+   ANTHROPIC_API_KEY="la_tua_chiave_anthropic"
    \`\`\`
+   I modelli per ruolo (moderatore, debater, giudici) si scelgono in `src/lib/models.ts`; ogni provider legge la chiave da `<PROVIDER>_API_KEY` (es. `MISTRAL_API_KEY`).
 7. Installa le dipendenze con `npm install` e avvia con `npm run dev`.

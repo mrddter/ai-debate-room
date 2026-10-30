@@ -1,4 +1,6 @@
-const baseRules = `Regola d'ingaggio tassativa: Se l'attuale stato della discussione e dell'argomento non tocca la tua specifica area di competenza, o se non hai obiezioni/aggiunte di altissimo valore che cambiano le carte in tavola, rispondi ESATTAMENTE e SOLO con: 'Non ho nulla da dire. Passo la parola'. Non riassumere, non fare complimenti e non ripetere concetti già detti. Parla solo se devi distruggere un'idea o migliorarla concretamente. Max 80 parole per intervento, ma usane meno se puoi. Sii telegrafico, realista, cinico e vai dritto al punto.`;
+import type { ModelConfig } from "./volcanicAI";
+
+const baseRules =`Regola d'ingaggio tassativa: Se l'attuale stato della discussione e dell'argomento non tocca la tua specifica area di competenza, o se non hai obiezioni/aggiunte di altissimo valore che cambiano le carte in tavola, rispondi ESATTAMENTE e SOLO con: 'Non ho nulla da dire. Passo la parola'. Non riassumere, non fare complimenti e non ripetere concetti già detti. Parla solo se devi distruggere un'idea o migliorarla concretamente. Max 80 parole per intervento, ma usane meno se puoi. Sii telegrafico, realista, cinico e vai dritto al punto.`;
 const cavemanWithJacket = `# STILE DI COMUNICAZIONE: "EXECUTIVE DIRECT" (Business Caveman)
 
 Devi comunicare utilizzando una modalità ultra-concisa, professionale e ad altissima densità di informazioni. 
@@ -22,8 +24,19 @@ ESEMPIO POSITIVO: "Crash causato da errore alla riga 45. Correzione necessaria:"
 export const addendum = cavemanWithJacket + baseRules;
 
 const llm = {
-  default: { provider: "mistral", model: "mistral-large-latest" },
-  // default: { provider: "ollama", model: "gemini-3-flash-preview:cloud" },
+  anthropic: {
+    // fallbacks "default": on a safety-classifier refusal the API reruns the request on a fallback model
+    opusHigh: {
+      provider: "anthropic",
+      model: "claude-opus-5-5",
+      providerOptions: { anthropic: { effort: "high", fallbacks: "default" } },
+    },
+    sonnetMedium: {
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+      providerOptions: { anthropic: { effort: "medium", fallbacks: "default" } },
+    },
+  },
   mistral: {
     small: { provider: "mistral", model: "mistral-small-latest" },
     medium: { provider: "mistral", model: "mistral-medium-latest" },
@@ -40,10 +53,11 @@ const llm = {
     gptoss: { provider: "ollama", model: "gpt-oss:120b-cloud" },
     qwen: { provider: "ollama", model: "qwen3.5:397b-cloud" },
   },
-} as const;
+} as const satisfies Record<string, Record<string, ModelConfig>>;
 
 export const models = {
-  moderator: llm.mistral.large,
-  judge: llm.mistral.small,
-  debater: llm.mistral.medium,
+  moderator: llm.anthropic.opusHigh,
+  // Judges run on a different model than the debaters to limit self-preference bias
+  judge: llm.anthropic.sonnetMedium,
+  debater: llm.anthropic.opusHigh,
 } as const;

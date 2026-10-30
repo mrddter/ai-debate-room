@@ -19,7 +19,7 @@ import {
   judgeAgents,
   initializeDebaterAgents,
 } from "./agents";
-import { saveArtifactTool } from "../mcp/saveArtifactTool";
+import { saveDebateArtifacts } from "../mcp/saveArtifactTool";
 import * as log from "@volcanicminds/tools/logger";
 
 export type DebateStatus =
@@ -132,8 +132,12 @@ export class DebateManager {
       try {
         if (schema) {
           const response = await agent.generate(finalPrompt, {
-            output: schema,
+            structuredOutput: { schema },
           });
+          // Mastra may report a failed structured output on response.error instead of throwing
+          if (response.object === undefined) {
+            throw response.error ?? new Error("No object generated");
+          }
           return response.object as T;
         }
 
@@ -142,7 +146,8 @@ export class DebateManager {
       } catch (err: any) {
         if (
           schema &&
-          (err.name === "NoObjectGeneratedError" ||
+          (err.id?.startsWith?.("STRUCTURED_OUTPUT_") ||
+            err.name === "NoObjectGeneratedError" ||
             err.message?.includes("No object generated") ||
             err.message?.includes("JSON") ||
             err.message?.includes("parse"))
@@ -843,29 +848,16 @@ Rispondi in formato JSON: {"summary": "sintesi estesa (max 400 parole)", "inShor
         `**[${moderatorAgent.name} (Sunto Finale)]**\n\n${inShort}`,
       );
 
-      // Manual call to saveArtifactTool as safety measure if Agent didn't trigger it via schema generation
+      // Manual save as safety measure if the Agent didn't trigger the saveArtifact tool
       // This ensures files are ALWAYS created even if tool_use wasn't explicitly triggered by the LLM
       try {
-        if (
-          saveArtifactTool &&
-          typeof saveArtifactTool.execute === "function"
-        ) {
-          await saveArtifactTool.execute({
-            context: {
-              summary: result.summary,
-              inShort: result.inShort,
-            },
-            mastra: undefined,
-            runtimeContext: {} as any,
-          } as any);
-          console.log(
-            "[DebateManager] Artifacts salvati manualmente con successo.",
-          );
-        } else {
-          console.error(
-            "[DebateManager] Errore: saveArtifactTool.execute non disponibile.",
-          );
-        }
+        await saveDebateArtifacts({
+          summary: result.summary,
+          inShort: result.inShort,
+        });
+        console.log(
+          "[DebateManager] Artifacts salvati manualmente con successo.",
+        );
       } catch (saveErr) {
         console.error(
           "[DebateManager] Errore salvataggio manuale artifacts:",
