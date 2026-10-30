@@ -69,6 +69,8 @@ export interface UsageRecord {
 export type DebateEventBody =
   | { type: "debate_started"; debateId: string; topic: string; mode: DebateMode; settings: SessionSettings }
   | { type: "debaters_selected"; debaters: AgentConfig[]; moderatorMessage?: string }
+  // A resumed debate adopts the limits configured at that moment
+  | { type: "settings_changed"; settings: SessionSettings }
   | {
       type: "moderator_message";
       kind: "intro" | "transition" | "summary";

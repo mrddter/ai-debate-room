@@ -154,6 +154,7 @@ document.getElementById("metrics").textContent = data.metrics;
 const describe = {
   debate_started: (e) => "Tema: " + e.topic + " (" + e.mode + ")",
   debaters_selected: (e) => "Partecipanti: " + e.debaters.map((d) => d.name).join(", "),
+  settings_changed: (e) => "Nuovi limiti: budget $" + e.settings.maxCostUsd + ", massimo " + e.settings.maxTurns + " interventi",
   moderator_message: (e) => "[" + e.kind + "] " + e.text + (e.inShort ? "\\n\\nIn breve: " + e.inShort : "") + (e.focalPoints ? "\\n\\nPunti focali:\\n" + numbered(e.focalPoints) : ""),
   stage_changed: (e) => "Fase: " + e.stage + "\\n" + e.text,
   floor_given: (e) => "Parola a " + name(e.speakerId) + " (" + e.source + "): " + e.reason,

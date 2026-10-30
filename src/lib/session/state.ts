@@ -169,6 +169,9 @@ export function applyEvent(state: DebateState, event: DebateEvent): DebateState 
       state.moderatorMessage = event.moderatorMessage;
       state.phase = "running";
       break;
+    case "settings_changed":
+      state.settings = { ...event.settings };
+      break;
     case "moderator_message":
       pushModeratorMessage(state, event, event.text);
       if (event.kind === "summary") {

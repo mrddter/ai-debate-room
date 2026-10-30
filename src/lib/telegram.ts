@@ -15,7 +15,7 @@ const START_COMMANDS: readonly { command: string; mode: DebateMode }[] = [
 const HELP_TEXT = `Comandi:
 /debate <tema>: dibattito strutturato (esplorazione, critica, decisione)
 /brainstorm <tema>: brainstorming libero, senza freni
-/mano [testo]: chiedi la parola; con il testo, è il tuo intervento quando il moderatore te la dà
+/hand [testo]: chiedi la parola; con il testo, è il tuo intervento quando il moderatore te la dà
 /status: avanzamento, fase e spesa stimata
 /whiteboard: la lavagna condivisa
 /stop: chiude il dibattito con il sunto
@@ -28,6 +28,25 @@ const HAND_REPLIES: Record<Exclude<UserHandResult, "submitted">, string> = {
   not_running: "Nessun dibattito in corso: la mano si alza solo durante un dibattito.",
 };
 
+// Telegram rejects texts over 4096 characters with a 400; the margin covers how it counts emoji and entities
+const MAX_MESSAGE_LENGTH = 4000;
+
+/** Cuts at the last line break that fits, so a long board or summary arrives in several messages instead of failing. */
+export function splitMessage(text: string, limit = MAX_MESSAGE_LENGTH): string[] {
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf("\n", limit);
+    if (cut < limit / 2) cut = limit;
+    // Never split an emoji: a lone surrogate half is invalid UTF-16
+    if (/[\uD800-\uDBFF]/.test(rest[cut - 1])) cut--;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n+/, "");
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
 export function setupTelegramBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -37,6 +56,23 @@ export function setupTelegramBot() {
   const bot = new Telegraf(token);
   const manager = new DebateManager();
   let activeChatId: number | null = null;
+
+  // Every outgoing text goes through here: cut under the length limit, formatted when the markup parses, plain
+  // otherwise. It never throws: an unhandled send error once killed the process in the middle of a debate
+  const send = async (chat: number, text: string, parseMode?: "Markdown" | "HTML") => {
+    for (const part of splitMessage(text)) {
+      try {
+        await bot.telegram.sendMessage(chat, part, parseMode ? { parse_mode: parseMode } : {});
+      } catch (err) {
+        if (!parseMode) {
+          console.error("[Telegram] Invio fallito:", err);
+          continue;
+        }
+        console.error(`[Telegram] Errore invio ${parseMode}, riprovo come testo semplice:`, err);
+        await bot.telegram.sendMessage(chat, part).catch((fallbackErr) => console.error("[Telegram] Fallback fallito:", fallbackErr));
+      }
+    }
+  };
 
   // Middleware di sicurezza: ascolta solo dal chat ID configurato
   bot.use(async (ctx, next) => {
@@ -72,23 +108,7 @@ export function setupTelegramBot() {
       "msg length:",
       msg.length,
     );
-    if (activeChatId) {
-      // In Markdown mode, we can't just send raw JSON or strings with unclosed entities
-      // However, we want to keep bold for headers. We switch to MarkdownV2 or simply keep Markdown but clean content.
-      try {
-        await bot.telegram.sendMessage(activeChatId, msg, {
-          parse_mode: "Markdown",
-        });
-      } catch (err) {
-        console.error(
-          "[Telegram] Errore invio Markdown, riprovo come testo semplice:",
-          err,
-        );
-        await bot.telegram
-          .sendMessage(activeChatId, msg) // Fallback to plain text
-          .catch((e) => console.error("[Telegram] Fallback fallito:", e));
-      }
-    }
+    if (activeChatId) await send(activeChatId, msg, "Markdown");
   });
   manager.setOnFinished(() => {
     activeChatId = null;
@@ -115,11 +135,7 @@ export function setupTelegramBot() {
     }
 
     console.log("[Telegram] Invio messaggio richiesta preferenze.");
-    await bot.telegram
-      .sendMessage(activeChatId, msg, { parse_mode: "HTML" })
-      .catch((err) =>
-        console.error("[Telegram] Errore invio messaggio preferenze:", err),
-      );
+    await send(activeChatId, msg, "HTML");
   });
 
   manager.setOnSelectionRequired(async (selection, allAvailable, moderatorMessage) => {
@@ -168,11 +184,7 @@ export function setupTelegramBot() {
       msg.length,
     );
     console.log("[Telegram] Messaggio:", msg.substring(0, 500) + "..."); // Log parte del messaggio
-    await bot.telegram
-      .sendMessage(activeChatId, msg, { parse_mode: "HTML" })
-      .catch((err) =>
-        console.error("[Telegram] Errore invio messaggio selezione:", err),
-      );
+    await send(activeChatId, msg, "HTML");
   });
 
   // Handlers never await a debate step: Telegraf polls the next updates only after the current batch
@@ -196,13 +208,11 @@ export function setupTelegramBot() {
         await manager.startDebate(topic, mode);
       } catch (err) {
         console.error(`[Telegram] Errore in /${command}:`, err);
-        ctx.reply(
-          "Errore interno durante l'avvio del dibattito. Controlla i log del server.",
-        );
+        await send(ctx.chat.id, "Errore interno durante l'avvio del dibattito. Controlla i log del server.");
       }
     });
   }
-  bot.command("mano", (ctx) => {
+  bot.command("hand", (ctx) => {
     const result = manager.raiseUserHand(ctx.payload);
     if (result !== "submitted") return ctx.reply(HAND_REPLIES[result]);
   });
@@ -221,11 +231,11 @@ export function setupTelegramBot() {
       await ctx.reply("Errore durante la ripresa del dibattito. Controlla i log del server.");
     }
   });
-  bot.command(["status", "stats"], (ctx) => ctx.reply(statusReport()));
+  bot.command(["status", "stats"], (ctx) => send(ctx.chat.id, statusReport()));
   bot.command("whiteboard", (ctx) => {
     if (!manager.state) return ctx.reply("Nessun dibattito in corso.");
     // Plain text: board items carry model-written text that would break Markdown parsing
-    ctx.reply(`Lavagna\n\n${manager.whiteboard}`);
+    return send(ctx.chat.id, `Lavagna\n\n${manager.whiteboard}`);
   });
 
   // Gestore messaggi di testo semplici (non comandi)
@@ -237,7 +247,7 @@ export function setupTelegramBot() {
       // While the user has the floor, plain text is their speech
       if (manager.submitUserSpeech(ctx.message.text)) return;
       return ctx.reply(
-        "Un dibattito è in corso. Per intervenire usa /mano (anche con il testo: /mano <intervento>), /status per l'avanzamento, /stop per chiuderlo.",
+        "Un dibattito è in corso. Per intervenire usa /hand (anche con il testo: /hand <intervento>), /status per l'avanzamento, /stop per chiuderlo.",
       );
     }
 
@@ -253,13 +263,14 @@ export function setupTelegramBot() {
 
     const topic = ctx.message.text.trim();
     activeChatId = ctx.chat.id;
-    ctx.reply(
-      `🚀 Ricevuto! Inizio la fase di selezione debaters per il topic...`,
-    );
+    send(ctx.chat.id, "🚀 Ricevuto! Inizio la fase di selezione dei debaters per il tema.");
     manager.startDebate(topic).catch((err) => {
       console.error("[Telegram] Errore avvio dibattito:", err);
     });
   });
+
+  // Telegraf's default handler rethrows and the process exits: a failed reply must never stop a running debate
+  bot.catch((err, ctx) => console.error(`[Telegram] Errore non gestito sull'update ${ctx.update.update_id}:`, err));
 
   bot.launch();
   process.once("SIGINT", () => bot.stop("SIGINT"));

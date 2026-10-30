@@ -24,15 +24,15 @@ Ogni chiamata ai modelli riceve l'intera trascrizione del dibattito, un messaggi
 
 ### Giudici
 
-Tre giudici valutano la fase in corso una volta per giro, cioè ogni N interventi con N pari al numero di partecipanti (`judgeEvery` in `src/lib/debateConfig.ts` cambia la frequenza); il conteggio riparte a ogni cambio di fase. Una fase si chiude quando i giudici sono tutti pronti, oppure quando almeno due terzi sono pronti e due terzi assegnano maturità 5; chiusa l'ultima fase, il dibattito finisce. Il limite di sicurezza è di 250 interventi (`maxTurns`); con il budget di spesa attivo si arriva prima al tetto di spesa.
+Tre giudici valutano la fase in corso una volta per giro, cioè ogni N interventi con N pari al numero di partecipanti (`judgeEvery` in `src/lib/debateConfig.ts` cambia la frequenza); il conteggio riparte a ogni cambio di fase. Una fase si chiude quando i giudici sono tutti pronti, oppure quando almeno due terzi sono pronti e due terzi assegnano maturità 5; chiusa l'ultima fase, il dibattito finisce. Il limite di sicurezza è di 500 interventi (`maxTurns`); con il budget di spesa attivo di solito si arriva prima al tetto di spesa.
 
 ### Il committente al tavolo
 
-Chi usa il bot partecipa come committente. Con `/mano` alza la mano e il moderatore gli dà la parola appena finisce l'intervento in corso, prima di qualunque debater. Se la mano è alzata con un testo (`/mano Servono numeri veri`) quel testo diventa l'intervento; altrimenti il bot avvisa quando è il suo turno e il messaggio successivo scritto in chat vale come intervento. Dopo 10 minuti senza risposta il dibattito prosegue.
+Chi usa il bot partecipa come committente. Con `/hand` alza la mano e il moderatore gli dà la parola appena finisce l'intervento in corso, prima di qualunque debater. Se la mano è alzata con un testo (`/hand Servono numeri veri`) quel testo diventa l'intervento; altrimenti il bot avvisa quando è il suo turno e il messaggio successivo scritto in chat vale come intervento. Dopo 10 minuti senza risposta il dibattito prosegue.
 
 ### Budget di spesa
 
-Ogni chiamata ai modelli registra il costo stimato secondo il listino in `src/lib/pricing.ts`: token non in cache, letti dalla cache, scritti in cache, token generati e ricerche web. Quando la spesa raggiunge l'80% di `maxCostUsd` (`src/lib/debateConfig.ts`, oggi 20 dollari: con i modelli attuali un intervento costa circa 16 centesimi, ricerca web e giudici compresi, più una quota che cresce con la lunghezza della trascrizione, quindi bastano per circa 100 interventi) il bot avvisa una volta; al 100% chiude il dibattito e genera comunque il sunto. Con un budget attivo, un modello assente dal listino blocca l'avvio invece di essere contato a zero; `maxCostUsd: 0` disattiva il controllo.
+Ogni chiamata ai modelli registra il costo stimato secondo il listino in `src/lib/pricing.ts`: token non in cache, letti dalla cache, scritti in cache, token generati e ricerche web. Quando la spesa raggiunge l'80% di `maxCostUsd` (`src/lib/debateConfig.ts`, oggi 50 dollari) il bot avvisa una volta; al 100% chiude il dibattito e genera comunque il sunto. Con i modelli attuali un intervento costa circa 16 centesimi con 3 debater e circa 39 con 15, ricerca web e giudici compresi: più partecipanti significa più ricerche, un moderatore che valuta più mani e più trascrizione da scrivere in cache per chi parla la prima volta. Con un budget attivo, un modello assente dal listino blocca l'avvio invece di essere contato a zero; `maxCostUsd: 0` disattiva il controllo. Un dibattito ripreso con `/resume` adotta i limiti configurati in quel momento.
 
 ### Debater fissi e smart
 
@@ -52,7 +52,7 @@ L'interfaccia è un bot Telegram con questi comandi:
 - `/start` o `/help`: mostra le istruzioni base.
 - `/debate <argomento>`: avvia un dibattito strutturato (es. `/debate Creare una piattaforma SaaS per dentisti`); senza argomento il bot chiede su quale tema e non avvia nulla.
 - `/brainstorm <argomento>`: avvia un brainstorming libero sullo stesso schema.
-- `/mano [testo]`: chiede la parola durante il dibattito; il testo, se presente, è l'intervento.
+- `/hand [testo]`: chiede la parola durante il dibattito; il testo, se presente, è l'intervento.
 - `/status`: stato, modalità e fase, argomento, interventi, mani alzate, consumo (chiamate LLM, token, letture dalla cache, ricerche web) e spesa stimata rispetto al budget.
 - `/whiteboard`: mostra la lavagna corrente.
 - `/stop`: interrompe il dibattito anche durante una chiamata in corso e fa comunque generare il sunto finale; durante la selezione la annulla.
@@ -65,7 +65,7 @@ start - Messaggio di benvenuto
 help - Mostra istruzioni di base
 debate - Dibattito strutturato (es /debate Nuova idea)
 brainstorm - Brainstorming libero (es /brainstorm Nuova idea)
-mano - Chiedi la parola (es /mano Il tuo intervento)
+hand - Chiedi la parola (es /hand Il tuo intervento)
 status - Mostra stato, fase e spesa
 whiteboard - Mostra la lavagna
 stop - Interrompe il dibattito

@@ -155,7 +155,7 @@ export class DebateManager {
   private busy = false;
   private loop: Promise<void> | null = null;
   private outbox: Promise<void> = Promise.resolve();
-  // Text sent with /mano: it becomes the user's speech when they get the floor (lost on restart, then asked again)
+  // Text sent with /hand: it becomes the user's speech when they get the floor (lost on restart, then asked again)
   private pendingUserText: string | null = null;
   // Set while the debate waits for the user's speech
   private deliverUserSpeech: ((text: string | null) => void) | null = null;
@@ -227,13 +227,7 @@ export class DebateManager {
     this.reset();
     this.currentStatus = "ASKING_SELECTION_PREFERENCE";
     try {
-      const settings: SessionSettings = {
-        maxTurns: debateConfig.maxTurns,
-        maxCostUsd: debateConfig.maxCostUsd,
-        judgeEvery: debateConfig.judgeEvery,
-        ...this.options.settings,
-      };
-      this.session = DebateSession.create(this.artifactsRoot, topic.trim(), settings, { mode });
+      this.session = DebateSession.create(this.artifactsRoot, topic.trim(), this.currentSettings(), { mode });
       [this.core, this.available] = await Promise.all([createCoreAgents(this.factory), loadDebaterConfigs(this.debatersDir)]);
     } catch (err) {
       this.endWithoutDebate("error", `startup: ${errorMessage(err)}`);
@@ -344,9 +338,22 @@ export class DebateManager {
       throw err;
     }
     const { state } = this.session;
-    this.broadcast(`♻️ **DIBATTITO RIPRESO** ♻️\n**Tema:** ${state.topic}\nInterventi finora: ${state.turn}`);
+    const settings = this.currentSettings();
+    const changed = JSON.stringify(settings) !== JSON.stringify(state.settings);
+    if (changed) this.session.emit({ type: "settings_changed", settings });
+    const limits = changed ? `\nLimiti aggiornati: budget ${usd(settings.maxCostUsd)}, massimo ${settings.maxTurns} interventi` : "";
+    this.broadcast(`♻️ **DIBATTITO RIPRESO** ♻️\n**Tema:** ${state.topic}\nInterventi finora: ${state.turn}${limits}`);
     this.startLoop(this.session);
     return true;
+  }
+
+  private currentSettings(): SessionSettings {
+    return {
+      maxTurns: debateConfig.maxTurns,
+      maxCostUsd: debateConfig.maxCostUsd,
+      judgeEvery: debateConfig.judgeEvery,
+      ...this.options.settings,
+    };
   }
 
   private reset() {

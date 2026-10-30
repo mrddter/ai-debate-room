@@ -270,7 +270,7 @@ describe("debate manager (mock models)", function () {
     const crashed = DebateSession.create(root, "Tema", { maxTurns: 10, maxCostUsd: 1, judgeEvery: 0 });
     crashed.emit({ type: "debaters_selected", debaters: [debaterConfig("alpha"), unpriced] });
 
-    const { instance, finished } = manager(scriptedTable());
+    const { instance, finished } = manager(scriptedTable(), { settings: { maxCostUsd: 1 } });
     assert.equal(await instance.resume(), true);
     await finished;
     assert.equal(instance.state!.finishReason, "error");
@@ -421,9 +421,9 @@ describe("debate manager (mock models)", function () {
     assert.equal(DebateSession.findUnfinished(root), null);
   });
 
-  it("resumes a crashed debate from its log", async () => {
-    // Wild mode has a single stage: the first ready vote ends the debate
-    const crashed = DebateSession.create(root, "Tema ripreso", { maxTurns: 10, maxCostUsd: 0, judgeEvery: 0 }, { mode: "wild" });
+  it("resumes a crashed debate from its log, with the limits configured now", async () => {
+    // Wild mode has a single stage: the first ready vote ends the debate. The old cap of 3 would stop it a speech earlier
+    const crashed = DebateSession.create(root, "Tema ripreso", { maxTurns: 3, maxCostUsd: 0, judgeEvery: 0 }, { mode: "wild" });
     crashed.emit({ type: "debaters_selected", debaters: [debaterConfig("alpha"), debaterConfig("beta")] });
     crashed.emit({ type: "moderator_message", kind: "intro", text: "Intro originale" });
     crashed.emit({ type: "floor_given", speakerId: "alpha", source: "called", reason: "inizio" });
@@ -440,6 +440,8 @@ describe("debate manager (mock models)", function () {
       ofType(events, "speech").map((event) => event.speakerId),
       ["alpha", "beta", "alpha", "beta"],
     );
+    assert.deepEqual(ofType(events, "settings_changed").map((event) => event.settings.maxTurns), [10]);
+    assert.ok(messages.some((msg) => msg.includes("Limiti aggiornati: budget $0.00, massimo 10 interventi")));
     assert.equal(state.messages.filter((message) => message.text === "Intro originale").length, 1);
     assert.equal(calls.filter((call) => call.prompt.includes("Il dibattito sta per iniziare")).length, 0, "no second intro");
     assert.deepEqual(
