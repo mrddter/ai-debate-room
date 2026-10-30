@@ -1,5 +1,9 @@
 import { Telegraf } from "telegraf";
 import { DebateManager } from "./debateManager";
+import { nameOf } from "./session/state";
+
+const MISSING_TOPIC_REPLY =
+  "Su quale tema vuoi il dibattito? Scrivi /debate seguito dall'argomento, per esempio:\n/debate Creare una piattaforma SaaS per dentisti";
 
 export function setupTelegramBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -23,26 +27,16 @@ export function setupTelegramBot() {
     return next();
   });
 
-  const escapeMarkdown = (text: string) => {
-    return text
-      .replace(/_/g, "\\_")
-      .replace(/\*/g, "\\*")
-      .replace(/\[/g, "\\[")
-      .replace(/\]/g, "\\]")
-      .replace(/\(/g, "\\(")
-      .replace(/\)/g, "\\)")
-      .replace(/~/g, "\\~")
-      .replace(/`/g, "\\`")
-      .replace(/>/g, "\\>")
-      .replace(/#/g, "\\#")
-      .replace(/\+/g, "\\+")
-      .replace(/-/g, "\\-")
-      .replace(/=/g, "\\=")
-      .replace(/\|/g, "\\|")
-      .replace(/\{/g, "\\{")
-      .replace(/\}/g, "\\}")
-      .replace(/\./g, "\\.")
-      .replace(/!/g, "\\!");
+  const statusReport = (): string => {
+    const lines = [`Stato: ${manager.status}`, `Argomento: ${manager.topic ?? "nessuno"}`, `Interventi: ${manager.turnCount}`];
+    const state = manager.state;
+    if (state) {
+      const queue = state.queue.map((hand) => `- ${nameOf(state, hand.debaterId)} (${hand.kind}): ${hand.pitch}`);
+      lines.push(`Mani alzate: ${queue.length > 0 ? `\n${queue.join("\n")}` : "nessuna"}`);
+      const { inputTokens, outputTokens, webSearches, calls } = state.usage.total;
+      lines.push(`Chiamate LLM: ${calls}, token in ${inputTokens}, token out ${outputTokens}, ricerche web ${webSearches}`);
+    }
+    return lines.join("\n");
   };
 
   manager.setOnMessage(async (msg) => {
@@ -155,25 +149,28 @@ export function setupTelegramBot() {
       );
   });
 
+  // Handlers never await a debate step: Telegraf polls the next updates only after the current batch
+  // is handled, so a long await here would delay /stop until the step is over
+  const logError = (scope: string) => (err: unknown) => console.error(`[Telegram] Errore in ${scope}:`, err);
+
   bot.command(["start", "help"], (ctx) =>
-    ctx.reply("Benvenuto! Usa /debate [argomento], /stop, /status o /whiteboard."),
+    ctx.reply(
+      "Benvenuto! Usa /debate <argomento>, /stop, /status, /whiteboard o /resume (riprende l'ultimo dibattito interrotto da un riavvio).",
+    ),
   );
   bot.command("debate", async (ctx) => {
     console.log("[Telegram] Comando /debate ricevuto, chat.id:", ctx.chat.id);
-    if (manager.status === "RUNNING" || manager.status === "SELECTING_DEBATERS" || manager.status === "ASKING_SELECTION_PREFERENCE")
+    if (manager.isActive)
       return ctx.reply(
         "Dibattito in corso o in fase di selezione. Usa /stop prima.",
       );
-    const topicMatch = ctx.message.text.match(/^\/debate(?:\s+(.+))?$/i);
+    // payload also covers /debate@BotName and multi-line topics
+    const topic = ctx.payload.trim();
+    if (!topic) return ctx.reply(MISSING_TOPIC_REPLY);
     activeChatId = ctx.chat.id;
-    console.log(
-      "[Telegram] activeChatId impostato a:",
-      activeChatId,
-      "topic:",
-      topicMatch?.[1]?.trim(),
-    );
+    console.log("[Telegram] activeChatId impostato a:", activeChatId, "topic:", topic);
     try {
-      await manager.startDebate(topicMatch?.[1]?.trim());
+      await manager.startDebate(topic);
     } catch (err) {
       console.error("[Telegram] Errore in /debate:", err);
       ctx.reply(
@@ -182,22 +179,25 @@ export function setupTelegramBot() {
     }
   });
   bot.command("stop", async (ctx) => {
-    if (manager.status === "IDLE")
-      return ctx.reply("Nessun dibattito in corso.");
-    ctx.reply("Sto fermando il dibattito e generando un sunto...");
-    await manager.stopDebate();
+    if (!manager.isActive) return ctx.reply("Nessun dibattito in corso.");
+    if (manager.status === "RUNNING") await ctx.reply("Sto fermando il dibattito e generando un sunto...");
+    manager.stopDebate().catch(logError("/stop"));
   });
-  bot.command(["status", "stats"], (ctx) => {
-    ctx.reply(
-      `Stato: ${manager.status}\nArgomento: ${manager.topic}\nTurni: ${manager.turnCount}`,
-    );
-  });
-  bot.command("whiteboard", (ctx) => {
-    if (manager.status === "IDLE") {
-      return ctx.reply("Nessun dibattito in corso.");
+  bot.command("resume", async (ctx) => {
+    if (manager.isActive) return ctx.reply("Dibattito in corso o in fase di selezione. Usa /stop prima.");
+    activeChatId = ctx.chat.id;
+    try {
+      if (!(await manager.resume())) await ctx.reply("Nessun dibattito interrotto da riprendere.");
+    } catch (err) {
+      logError("/resume")(err);
+      await ctx.reply("Errore durante la ripresa del dibattito. Controlla i log del server.");
     }
-    const safeText = escapeMarkdown(manager.whiteboard);
-    ctx.reply(`*Lavagna / Stato dell'Arte:*\n\n${safeText}`, { parse_mode: "Markdown" });
+  });
+  bot.command(["status", "stats"], (ctx) => ctx.reply(statusReport()));
+  bot.command("whiteboard", (ctx) => {
+    if (!manager.state) return ctx.reply("Nessun dibattito in corso.");
+    // Plain text: board items carry model-written text that would break Markdown parsing
+    ctx.reply(`Lavagna\n\n${manager.whiteboard}`);
   });
 
   // Gestore messaggi di testo semplici (non comandi)
@@ -212,12 +212,12 @@ export function setupTelegramBot() {
     }
 
     if (manager.status === "ASKING_SELECTION_PREFERENCE") {
-      await manager.handleSelectionPreferenceInput(ctx.message.text);
+      manager.handleSelectionPreferenceInput(ctx.message.text).catch(logError("selezione"));
       return;
     }
 
     if (manager.status === "SELECTING_DEBATERS") {
-      await manager.handleDebaterSelectionInput(ctx.message.text);
+      manager.handleDebaterSelectionInput(ctx.message.text).catch(logError("selezione"));
       return;
     }
 

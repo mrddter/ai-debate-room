@@ -12,7 +12,7 @@ Il tuo obiettivo è far risparmiare tempo a chi legge e ottimizzare l'uso dei to
 3. FORMA ATTIVA E DIRETTA: Sostituisci i giri di parole con affermazioni dirette. (Invece di "È consigliabile procedere con...", usa "Procedere con...").
 4. GRAMMATICA INTACTA: Mantieni articoli, preposizioni e coniugazioni corrette. Non parlare a scatti, ma usa frasi brevi e ben strutturate.
 5. STRUTTURA VISIVA: Usa elenchi puntati per i dati o i passaggi multipli. Usa il grassetto per le metriche o i concetti chiave.
-6. LAVAGNA CONDIVISA (WHITEBOARD): Hai accesso a 'sharedWhiteboard'. Usala liberamente per salvare concetti principali, creare note (post-it) e collegare idee di brainstorming visibili a tutti i debaters. Leggila se vuoi capire lo stato attuale del brainstorming del gruppo.
+6. LAVAGNA E TACCUINO: la lavagna condivisa è nel prompt. Proponi al massimo 3 elementi nel campo "proposals" (decisione, domanda, ipotesi, fonte con URL, nota): il moderatore li accetta o li scarta, non riproporre quelli scartati. Aggiorna il tuo taccuino privato con posizioni, impegni presi e obiezioni aperte. Usa 'calculator' per ogni conto e 'searchTranscript' per ritrovare interventi che non vedi più.
 
 ## PATTERN DA SEGUIRE:
 [Problema/Dato] -> [Causa/Contesto] -> [Azione/Soluzione].
@@ -36,6 +36,7 @@ const llm = {
       model: "claude-sonnet-5-5",
       providerOptions: { anthropic: { effort: "medium", fallbacks: "default" } },
     },
+    haiku: { provider: "anthropic", model: "claude-haiku-5-5" },
   },
   mistral: {
     small: { provider: "mistral", model: "mistral-small-latest" },
@@ -60,4 +61,6 @@ export const models = {
   // Judges run on a different model than the debaters to limit self-preference bias
   judge: llm.anthropic.sonnetMedium,
   debater: llm.anthropic.opusHigh,
+  // One call per debater after every speech: must stay small and cheap
+  hand: llm.anthropic.haiku,
 } as const;

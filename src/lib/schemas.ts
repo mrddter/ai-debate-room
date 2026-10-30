@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { BOARD_ITEM_KINDS, BOARD_OPS } from "./session/whiteboard";
+import { HAND_KINDS } from "./session/events";
+
+// Array lengths are capped in code, not in the schema: structured output support for maxItems varies by provider
 
 export const debaterSelectionSchema = z.object({
   debaters: z.array(
@@ -22,28 +26,48 @@ export const debaterSelectionSchema = z.object({
   moderatorMessage: z.string().optional(),
 });
 
-export const moderatorAnalysisSchema = z.object({
-  updatedWhiteboard: z.string().describe("La versione aggiornata e compatta del documento di progetto/lavagna"),
-  candidateIds: z.array(z.string()).min(1).max(4).describe("Array di ID degli agenti da cui si vuole un'opinione sull'alzata di mano")
+export const boardOpSchema = z.object({
+  op: z.enum(BOARD_OPS),
+  id: z.string().optional().describe("ID dell'elemento (es. W3) per accept, reject, resolve, edit, link"),
+  kind: z.enum(BOARD_ITEM_KINDS).optional().describe("Tipo, obbligatorio per add"),
+  text: z.string().optional().describe("Testo per add ed edit, motivazione per reject, esito per resolve"),
+  url: z.string().optional().describe("URL, obbligatorio per le fonti"),
+  to: z.string().optional().describe("ID di destinazione per link"),
 });
 
-export const raiseHandSchema = z.object({
-  score: z.number().min(1).max(10),
-  reason: z.string().describe("Breve motivazione (max 20 parole) del perché devi intervenire ora")
+export const moderatorTurnSchema = z.object({
+  whiteboardOps: z.array(boardOpSchema).describe("Operazioni sulla lavagna, array vuoto se non serve nulla"),
+  nextSpeakerId: z.string().describe("ID del prossimo a parlare"),
+  source: z.enum(["queue", "called"]).describe("queue se scegli dalla coda delle mani alzate, called se chiami tu qualcuno"),
+  reason: z.string().describe("Perché proprio lui ora, max 20 parole"),
+  transition: z.string().describe("Frase breve con cui dai la parola, max 40 parole"),
 });
 
-export const routeNextSpeakerSchema = z.object({
-  nextSpeakerId: z.string(),
-  transition: z.string(),
+export const handSchema = z.object({
+  raise: z.boolean().describe("true solo se hai qualcosa di nuovo e pertinente da dire adesso"),
+  kind: z.enum(HAND_KINDS).describe("replica, nuovo_punto, domanda o dato"),
+  pitch: z.string().describe("Il tema del tuo intervento in massimo 12 parole"),
+  target: z.string().describe("ID del partecipante a cui rispondi, stringa vuota se nessuno"),
+});
+
+export const speechSchema = z.object({
+  text: z.string().describe("Il tuo intervento"),
+  replyTo: z.array(z.string()).describe("ID dei partecipanti a cui rispondi direttamente, vuoto se nessuno"),
+  notebook: z.string().describe("Il tuo taccuino privato aggiornato, sostituisce il precedente, max 120 parole"),
+  proposals: z
+    .array(
+      z.object({
+        kind: z.enum(BOARD_ITEM_KINDS),
+        text: z.string(),
+        url: z.string().describe("URL per le fonti, stringa vuota negli altri casi"),
+      }),
+    )
+    .describe("Proposte per la lavagna, massimo 3, vuoto se nessuna"),
 });
 
 export const summarySchema = z.object({
   summary: z.string(),
   inShort: z.string(),
-});
-
-export const speechSchema = z.object({
-  text: z.string(),
 });
 
 export const judgeOutputSchema = z.object({

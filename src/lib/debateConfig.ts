@@ -1,12 +1,14 @@
 import { models } from "../lib/models";
 import type { ModelConfig } from "./volcanicAI";
 import { judgeOutputSchema } from "./schemas";
+import type { ToolKey } from "../mcp/index";
 import { z } from "zod";
 
 export type DebateRole = "moderator" | "debater" | "judge";
 
 export interface AgentConfig {
-  tools?: string[];
+  // Extra tools on top of the role defaults in debateConfig.roleTools
+  tools?: ToolKey[];
   id: string;
   enabled: boolean;
   name: string;
@@ -21,16 +23,27 @@ export interface AgentConfig {
 export type JudgeOutput = z.infer<typeof judgeOutputSchema>;
 
 export interface DebateSettings {
-  defaultTopic: string;
   maxTurns: number;
+  // Most recent messages every debater sees verbatim; older ones via notebook, board and searchTranscript
+  contextWindow: number;
+  // Judges vote every N speeches; 0 means once per round (number of debaters)
+  judgeEvery: number;
+  roleTools: Record<DebateRole, ToolKey[]>;
+  handModel: ModelConfig;
   moderator: AgentConfig;
   judges: AgentConfig[];
 }
 
 export const debateConfig: DebateSettings = {
-  defaultTopic:
-    "È etico utilizzare l'AI per scrivere codice al posto degli sviluppatori umani?",
   maxTurns: 500,
+  contextWindow: 8,
+  judgeEvery: 0,
+  roleTools: {
+    moderator: ["searchTranscript"],
+    debater: ["calculator", "searchTranscript"],
+    judge: [],
+  },
+  handModel: models.hand,
 
   moderator: {
     enabled: true,
@@ -43,7 +56,9 @@ Il tuo compito NON è partecipare con opinioni, ma:
 2. Coordinare il tavolo: tieni il focus su una sola idea alla volta finché non c'è consenso o bocciatura.
 3. Chiedi attivamente una nuova proposta solo quando la precedente è stata validata o scartata o se l'avvocato del diavolo e/o l'avvocato diritto rifiutano l'idea.
 4. Assicurati che il tavolo giunga a una chiara e utile conclusione dell'argomento.
-5. Alla fine, genera un sunto neutrale salvandolo come artefatto chiamando 'saveArtifact'. Includi anche un sunto ultraconciso 'in short' per il paragrafo riassuntivo. Massimo 400 parole.`,
+5. Custodisci la lavagna: accetta, scarta, risolvi o collega le proposte dei debaters e aggiungi tu le decisioni prese dal tavolo. Solo ciò che accetti diventa stato condiviso.
+6. Dai la parola preferendo chi ha alzato la mano con un tema pertinente, ma chiama direttamente chi serve quando la coda non copre il punto aperto.
+7. Alla fine, genera un sunto neutrale con un sunto ultraconciso 'in short'. Massimo 400 parole.`,
     model: models.moderator,
   },
 

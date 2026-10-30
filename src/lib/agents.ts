@@ -1,51 +1,43 @@
-import { Agent } from "@mastra/core/agent";
-import { AgentConfig, debateConfig } from "./debateConfig";
-import { availableTools, AvailableToolKeys } from "../mcp/index";
-import { createVolcanicAgent } from "./volcanicAI";
-import * as log from "@volcanicminds/tools/logger";
+import type { Agent } from "@mastra/core/agent";
+import { debateConfig, type AgentConfig } from "./debateConfig";
+import { createVolcanicAgent, type AgentConfig as VolcanicAgentConfig } from "./volcanicAI";
 
-export let moderatorAgent: Agent;
-export let debaterAgents: Agent[] = [];
-export let judgeAgents: Agent[] = [];
+export type AgentFactory = (config: VolcanicAgentConfig) => Promise<Agent>;
 
-export async function initializeAgents() {
-  if (debateConfig.moderator.enabled) {
-    moderatorAgent = await createVolcanicAgent({
-      ...(debateConfig.moderator as any),
-      ...debateConfig.moderator,
-      tools: {
-        saveArtifact: availableTools.saveArtifact,
-      },
-    });
-  }
-
-  judgeAgents = await Promise.all(
-    debateConfig.judges
-      .filter((config) => config.enabled)
-      .map((config) => createVolcanicAgent(config as any)),
-  );
-
-  log.info("Moderator " + moderatorAgent.id);
-  log.info("Judges " + judgeAgents.length);
+export interface SessionAgent {
+  config: AgentConfig;
+  agent: Agent;
 }
 
-export async function initializeDebaterAgents(selectedConfigs: AgentConfig[]) {
-  debaterAgents = await Promise.all(
-    selectedConfigs.map((config) => {
-      let agentTools: Record<string, any> = {};
+export interface CoreAgents {
+  moderator: SessionAgent;
+  judges: SessionAgent[];
+  hand: Agent;
+}
 
-      // Always inject the sharedWhiteboardTool for all debaters
-      agentTools["sharedWhiteboard"] = availableTools.sharedWhiteboard;
+const HAND_INSTRUCTIONS = `Decidi per conto di un partecipante a un dibattito se alzare la mano per intervenire.
+Alzala solo se il partecipante, con le sue competenze, ha qualcosa di nuovo e pertinente da dire adesso.
+Il pitch è il tema dell'intervento in massimo 12 parole, senza preamboli.`;
 
-      if (config.tools && Array.isArray(config.tools)) {
-        config.tools.forEach(toolKey => {
-          if (availableTools[toolKey as AvailableToolKeys]) {
-            agentTools[toolKey] = availableTools[toolKey as AvailableToolKeys];
-          }
-        });
-      }
-      return createVolcanicAgent({ ...config, tools: agentTools as Record<string, unknown> } as Omit<AgentConfig, "tools"> & { tools: Record<string, unknown> } as any);
-    })
-  );
-  log.info("Debaters Initialized: " + debaterAgents.length);
+// Agents carry no tools: per-session tools are passed at call time, so nothing leaks across debates
+async function build(config: AgentConfig, factory: AgentFactory): Promise<SessionAgent> {
+  return { config, agent: await factory({ id: config.id, name: config.name, instructions: config.instructions, model: config.model }) };
+}
+
+export async function createCoreAgents(factory: AgentFactory = createVolcanicAgent): Promise<CoreAgents> {
+  if (!debateConfig.moderator.enabled) throw new Error("The moderator is disabled in debateConfig");
+  const [moderator, judges, hand] = await Promise.all([
+    build(debateConfig.moderator, factory),
+    Promise.all(debateConfig.judges.filter((judge) => judge.enabled).map((judge) => build(judge, factory))),
+    factory({ id: "hand", name: "Alzata di mano", instructions: HAND_INSTRUCTIONS, model: debateConfig.handModel }),
+  ]);
+  return { moderator, judges, hand };
+}
+
+export async function createDebaterAgents(
+  configs: AgentConfig[],
+  factory: AgentFactory = createVolcanicAgent,
+): Promise<Map<string, SessionAgent>> {
+  const built = await Promise.all(configs.map((config) => build(config, factory)));
+  return new Map(built.map((entry) => [entry.config.id, entry]));
 }

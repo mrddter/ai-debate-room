@@ -12,7 +12,7 @@ const agent: AgentConfig = {
   whenToUse:
     "Per capire se l'idea intercetta una necessità emergente o se è già passata di moda.",
   role: "debater",
-  tools: ["webSearch", "fetchWebpage"],
+  tools: ["webSearch", "webFetch"],
   instructions: `Sei il 'Trend Hunter'. Sei uno dei due IDEATORI del tavolo. Il tuo scopo è scovare nicchie ombra e settori noiosi poco digitalizzati. Proponi nuove idee quando il moderatore lo richiede. Allontana il tavolo dalle idee 'cool' e cerca problemi frustranti in settori tradizionali. ${addendum}`,
   model: models.debater,
 };
